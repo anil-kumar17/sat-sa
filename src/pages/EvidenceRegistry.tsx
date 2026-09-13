@@ -65,7 +65,7 @@ export const EvidenceRegistry: React.FC = () => {
   ];
 
   const handleVerify = (hash: string) => {
-    setVerificationResult(`Cryptographic Verification Successful: SHA-256 hash mathematically matches immutable supervisory ledger block #84102.`);
+    setVerificationResult(`Verification Successful: SHA-256 evidence hash matches registered digest #84102.`);
     setTimeout(() => setVerificationResult(null), 4000);
   };
 
@@ -76,20 +76,20 @@ export const EvidenceRegistry: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] text-[#4cd7f6] mb-1">
             <Lock className="w-3.5 h-3.5" />
-            IMMUTABLE EVIDENCE REGISTRY // CRYPTOGRAPHIC VAULT
+            EVIDENCE REGISTRY // VERIFICATION VAULT
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[#dde2f7] tracking-tight">
             Evidence Registry
           </h1>
           <p className="text-xs text-[#8d90a0] mt-0.5">
-            Cryptographically sealed and timestamped forensic evidence dossiers supporting supervisory findings.
+            Verified and timestamped forensic evidence dossiers supporting supervisory findings.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="px-3 py-1 rounded bg-[#131B2E] border border-[#1E293B] text-xs font-mono text-[#10b981] flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4" />
-            <span>84 / 84 Dossiers Sealed & Intact</span>
+            <span>84 / 84 Dossiers Verified & Intact</span>
           </div>
         </div>
       </div>

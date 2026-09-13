@@ -408,7 +408,7 @@ export const Dashboard: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-[11px] text-[#8d90a0]">
-                    Quantifying mandated supervisory controls that were absent or bypassed
+                    Quantifying required supervisory controls that were absent or bypassed
                   </p>
                 </div>
               </div>
@@ -481,7 +481,7 @@ export const Dashboard: React.FC = () => {
               </p>
             </div>
             <span className="text-[10px] font-mono text-[#4cd7f6] px-2 py-0.5 rounded bg-[#151b2b] border border-[#4cd7f6]/30">
-              MANDATED BASELINE 100%
+              REQUIRED CONTROL BASELINE 100%
             </span>
           </div>
 

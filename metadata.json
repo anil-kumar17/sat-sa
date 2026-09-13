@@ -1,6 +1,6 @@
 {
-  "name": "SAT-SA (Supervisory Analytics)",
-  "description": "Cybersecurity supervisory analytics platform for oversight of monitored security entities, control deviations, and human supervisory decisions.",
+  "name": "SAT-SA — Supervisory Analytics Tool for SOC Assessment",
+  "description": "Supervisory Analytics Tool for SOC Assessment — decision-support platform for control deviation analysis, evidence verification, and supervisory review.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

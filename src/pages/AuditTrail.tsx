@@ -30,13 +30,13 @@ export const AuditTrail: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] text-[#4cd7f6] mb-1">
             <FileClock className="w-3.5 h-3.5" />
-            IMMUTABLE SUPERVISORY LOG // PROVENANCE CHAIN
+            SUPERVISORY AUDIT LOG // PROVENANCE CHAIN
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[#dde2f7] tracking-tight">
             Audit Trail
           </h1>
           <p className="text-xs text-[#8d90a0] mt-0.5">
-            Tamper-evident, cryptographically chained record of all supervisory actions, findings, decisions, and evidence seals.
+            Tamper-evident, timestamped record of all supervisory actions, findings, decisions, and evidence verification events.
           </p>
         </div>
 

@@ -118,7 +118,7 @@ export const Settings: React.FC = () => {
 
             <div className="p-3 bg-[#090D16] rounded border border-[#1E293B] flex items-center justify-between">
               <div>
-                <span className="text-[#8d90a0] text-[10px] block">COLD EVIDENCE IMMUTABLE ARCHIVE</span>
+                <span className="text-[#8d90a0] text-[10px] block">COLD EVIDENCE ARCHIVE (AIR-GAPPED)</span>
                 <span className="text-[#dde2f7]">glacier-ledger-airgap.sat-sa.oversight.internal</span>
               </div>
               <span className="px-2 py-0.5 rounded bg-[#10b981]/20 text-[#10b981] text-[10px]">

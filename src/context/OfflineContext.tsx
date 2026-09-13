@@ -176,7 +176,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       setPendingActions(await syncRepository.getQueue());
 
-      // Simulate network roundtrip latency to central ledger
+      // Simulate network roundtrip latency to supervisory registry
       await new Promise((resolve) => setTimeout(resolve, 1400));
 
       const now = new Date();
@@ -263,7 +263,7 @@ export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ child
       decision,
       decisionTitle:
         decision === 'UPHOLD'
-          ? 'Affirmed Critical Defect (P0) — Corrective Action Plan Mandated'
+          ? 'Affirmed Critical Defect (P0) — Corrective Action Plan Recommended'
           : decision === 'DOWNGRADE'
           ? 'Downgraded to Observation — Telemetry Recalibration Window'
           : 'Finding Dismissed — Supervisory Waiver Recorded',

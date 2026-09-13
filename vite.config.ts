@@ -20,10 +20,10 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'SAT-SA (Supervisory Analytics)',
+          name: 'SAT-SA — Supervisory Analytics Tool for SOC Assessment',
           short_name: 'SAT-SA',
           description:
-            'Cyber-systemic supervisory analytics, defect attribution, and evidence integrity verification platform.',
+            'Supervisory Analytics Tool for SOC Assessment — decision-support platform for control deviation analysis, evidence verification, and supervisory review.',
           theme_color: '#080e1d',
           background_color: '#090D16',
           display: 'standalone',

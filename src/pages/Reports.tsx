@@ -29,8 +29,8 @@ export const Reports: React.FC = () => {
       type: 'Formal Notice',
       date: '2025-03-27',
       pages: '6 pages',
-      classification: 'STATUTORY NOTICE',
-      summary: 'Mandatory remediation order under FinSec Core 4.2 regarding unescalated Tier-3 incidents.'
+      classification: 'SUPERVISORY NOTICE',
+      summary: 'Recommended remediation action under FinSec Core 4.2 regarding unescalated Tier-3 incidents.'
     },
     {
       id: 'REP-2025-NRG03-ELEV',
@@ -73,7 +73,7 @@ export const Reports: React.FC = () => {
             Reports & Dossiers
           </h1>
           <p className="text-xs text-[#8d90a0] mt-0.5">
-            Cryptographically sealed supervisory briefings, statutory corrective action plans, and entity audit dossiers.
+            Verified supervisory briefings, recommended corrective action plans, and entity audit dossiers.
           </p>
         </div>
 

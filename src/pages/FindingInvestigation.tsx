@@ -26,7 +26,8 @@ import {
   Activity,
   FileText,
   RefreshCw,
-  WifiOff
+  WifiOff,
+  Database
 } from 'lucide-react';
 import { mockFindings, mockForensicRecords } from '../data/mockData';
 import { Finding, ForensicRecord } from '../types';
@@ -110,7 +111,7 @@ export const FindingInvestigation: React.FC = () => {
   const currentSyncStatus = queuedAction
     ? queuedAction.syncStatus
     : isDecisionConfirmed
-    ? 'SYNCED'
+    ? (connectivityState === 'OFFLINE' ? 'PENDING_SYNC' : 'SYNCED')
     : null;
 
   const handleCopyJson = (record: ForensicRecord) => {
@@ -139,7 +140,7 @@ export const FindingInvestigation: React.FC = () => {
       setConfirmationRecord({
         decision:
           selectedDecision === 'UPHOLD'
-            ? 'Affirmed Critical Defect (P0) — Corrective Action Plan Mandated'
+            ? 'Affirmed Critical Defect (P0) — Corrective Action Plan Recommended'
             : selectedDecision === 'DOWNGRADE'
             ? 'Downgraded to Observation — Telemetry Recalibration Window'
             : 'Finding Dismissed — Supervisory Waiver Recorded',
@@ -154,13 +155,18 @@ export const FindingInvestigation: React.FC = () => {
       if (updated) setFinding(updated);
 
       if (connectivityState === 'OFFLINE') {
-        showToast('Decision saved locally in Vault (PENDING SYNC). Survives refresh.');
+        showToast('Decision recorded locally in IndexedDB (PENDING SYNC)');
       } else {
-        showToast('Supervisory decision recorded and cryptographically sealed');
+        showToast('Supervisory decision recorded and verified');
       }
     } catch {
       showToast('Error recording supervisory decision locally');
     }
+  };
+
+  const handleReopenDecision = () => {
+    setIsDecisionConfirmed(false);
+    showToast('Supervisory review reopened for modification');
   };
 
   const filteredRecords = forensicRecords.filter(
@@ -203,9 +209,24 @@ export const FindingInvestigation: React.FC = () => {
             <div className="px-2.5 py-1 bg-[#131B2E] rounded flex items-center gap-1.5 text-[#8d90a0] border border-[#1E293B]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6] animate-pulse"></span>
               <span className="font-mono text-[10px] text-[#4cd7f6] tracking-wider uppercase font-semibold">
-                SUPERVISORY IMMUTABLE SESSION
+                SUPERVISORY REVIEW SESSION
               </span>
             </div>
+            {isDecisionConfirmed ? (
+              <span
+                className={`px-2.5 py-1 rounded font-mono text-[10px] font-semibold border ${
+                  currentSyncStatus === 'PENDING_SYNC'
+                    ? 'bg-[#f59e0b]/20 text-[#f59e0b] border-[#f59e0b]/40'
+                    : 'bg-[#10b981]/20 text-[#10b981] border-[#10b981]/40'
+                }`}
+              >
+                {currentSyncStatus === 'PENDING_SYNC' ? 'DECISION RECORDED (PENDING SYNC)' : 'DECISION RECORDED & SYNCED'}
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded bg-[#f59e0b]/10 text-[#f59e0b] font-mono text-[10px] font-semibold border border-[#f59e0b]/30">
+                REVIEW PENDING
+              </span>
+            )}
             <button
               onClick={() => navigate('/')}
               className="px-3 py-1 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
@@ -252,14 +273,14 @@ export const FindingInvestigation: React.FC = () => {
             </div>
             <div className="w-px h-7 bg-[#1E293B]"></div>
             <div className="flex flex-col pr-3">
-              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Flagged Dossiers</span>
+              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Flagged Incidents</span>
               <span className="text-sm font-semibold font-mono text-[#4cd7f6]">
                 {finding.flaggedIncidentsCount} Incidents
               </span>
             </div>
             <div className="w-px h-7 bg-[#1E293B]"></div>
             <div className="flex flex-col">
-              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Machine Confidence</span>
+              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Detection Confidence</span>
               <span className="text-sm font-semibold font-mono text-[#38BDF8]">
                 {finding.confidence}% Valid
               </span>
@@ -286,7 +307,7 @@ export const FindingInvestigation: React.FC = () => {
             <span className="text-[#dde2f7] font-semibold">{finding.inspector}</span>
           </div>
           <div className="p-2 bg-[#151b2b] rounded flex flex-col border border-[#1E293B]/60">
-            <span className="text-[#8d90a0] text-[10px]">Ledger Seal Status</span>
+            <span className="text-[#8d90a0] text-[10px]">Evidence Integrity</span>
             <span className="text-[#10b981] flex items-center gap-1 font-semibold">
               <Lock className="w-3 h-3" />
               {finding.ledgerSealStatus}
@@ -314,7 +335,7 @@ export const FindingInvestigation: React.FC = () => {
                   Workflow Provenance Divergence Matrix
                 </h2>
                 <p className="text-xs text-[#8d90a0]">
-                  Comparative state machine: Mandated baseline vs. cryptographically ingested telemetry trace.
+                  Comparative state machine: Standard operating baseline vs. ingested telemetry trace.
                 </p>
               </div>
             </div>
@@ -330,15 +351,15 @@ export const FindingInvestigation: React.FC = () => {
 
           {/* State Machine Tracks Container */}
           <div className="flex flex-col gap-3 p-3 sm:p-4 bg-[#080e1d] rounded border border-[#1E293B]">
-            {/* Track A: Mandated Baseline */}
+            {/* Track A: Control Baseline */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] text-[#4cd7f6] uppercase tracking-wider font-semibold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-                  TRACK A: MANDATED BASELINE (STANDARD OPERATING PROCEDURE)
+                  TRACK A: CONTROL BASELINE (STANDARD OPERATING PROCEDURE)
                 </span>
                 <span className="font-mono text-[10px] text-[#8d90a0]">
-                  Mandated Maximum SLA: 45 Minutes Cumulative
+                  Baseline SLA: 45 Minutes Cumulative
                 </span>
               </div>
 
@@ -366,11 +387,11 @@ export const FindingInvestigation: React.FC = () => {
                   <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Disposition Assigned</span>
                 </div>
 
-                {/* Step 3 (Mandatory Key Step) */}
+                {/* Step 3 (Required Key Step) */}
                 <div className="p-3 bg-[#1A243B] rounded flex flex-col gap-1 border border-[#03b5d3]/50">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#03b5d3] font-semibold">
-                      STEP 03 [MANDATORY]
+                      STEP 03 [REQUIRED CONTROL]
                     </span>
                     <Shield className="w-3.5 h-3.5 text-[#03b5d3]" />
                   </div>
@@ -540,7 +561,7 @@ export const FindingInvestigation: React.FC = () => {
             {/* Step 2 */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#03b5d3]/20 border border-[#03b5d3]/40 text-[#4cd7f6]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-              <span className="font-semibold">EVIDENCE VERIFIED</span>
+              <span className="font-semibold">EVIDENCE HASH VERIFIED</span>
             </div>
             <span className="text-[#8d90a0]">→</span>
             {/* Step 3 */}
@@ -660,11 +681,11 @@ export const FindingInvestigation: React.FC = () => {
               </div>
             </div>
 
-            {/* Section 3: Evidence Confidence */}
+            {/* Section 3: Evidence Consistency */}
             <div className="p-3.5 bg-[#080e1d] rounded flex flex-col gap-1.5 border border-[#1E293B]">
               <span className="font-mono text-[10px] text-[#03b5d3] uppercase tracking-wider font-semibold flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                EVIDENCE CONFIDENCE
+                EVIDENCE CONSISTENCY
               </span>
               <div className="p-2 bg-[#131B2E] rounded flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono border border-[#1E293B]">
                 <span className="text-[#4cd7f6]">
@@ -681,7 +702,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Deterministic Trigger: <code className="text-[#4cd7f6]">{finding.ruleCode}</code></span>
               </div>
               <div className="text-[#8d90a0]">
-                Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> (84 Cycles Validated)
+                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> (84 Records Validated)
               </div>
             </div>
           </section>
@@ -698,7 +719,7 @@ export const FindingInvestigation: React.FC = () => {
                     Traceability Chain
                   </h3>
                   <p className="text-[11px] text-[#8d90a0]">
-                    Cryptographic signal-to-source provenance link.
+                    Signal-to-source provenance and verification link.
                   </p>
                 </div>
               </div>
@@ -817,14 +838,14 @@ export const FindingInvestigation: React.FC = () => {
                       Evidence Integrity Verification
                     </span>
                     <span className="px-1.5 py-0.2 rounded bg-[#4cd7f6]/10 text-[#4cd7f6] font-mono text-[9px] border border-[#4cd7f6]/30">
-                      SEALED
+                      VERIFIED
                     </span>
                   </div>
                   <span className="font-mono text-[10px] text-[#dde2f7] truncate mt-0.5">
-                    SHA-256 Validated: {finding.sha256Hash}
+                    SHA-256 Hash Verified: {finding.sha256Hash}
                   </span>
                   <span className="font-mono text-[9px] text-[#8d90a0]">
-                    Evidence Registry Time-Stamp: {finding.evidenceTimestamp}
+                    Verification Timestamp: {finding.evidenceTimestamp}
                   </span>
                 </div>
               </div>
@@ -868,7 +889,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Export Parquet</span>
               </button>
               <span className="px-2.5 py-1 bg-[#1A243B] text-[#4cd7f6] rounded font-mono text-[10px] font-semibold border border-[#1E293B]">
-                {filteredRecords.length} Total Verified Records
+                {filteredRecords.length} Verified Records
               </span>
             </div>
           </div>
@@ -1010,7 +1031,7 @@ export const FindingInvestigation: React.FC = () => {
           </div>
         </section>
 
-        {/* LEVEL 5: HUMAN SUPERVISOR DECISION PANEL (Final Authority) */}
+        {/* LEVEL 5: HUMAN SUPERVISOR DECISION PANEL (Supervisory Determination) */}
         <section className="bg-[#151b2b] rounded p-4 sm:p-6 flex flex-col gap-4 border border-[#1E293B] shadow-xl">
           {/* Decision Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#1E293B]">
@@ -1023,9 +1044,15 @@ export const FindingInvestigation: React.FC = () => {
                   <h2 className="text-lg font-semibold text-[#dde2f7] tracking-tight">
                     SUPERVISOR DECISION
                   </h2>
-                  <span className="px-2 py-0.5 rounded bg-[#4cd7f6]/10 text-[#4cd7f6] font-mono text-[10px] border border-[#4cd7f6]/30">
-                    HUMAN REVIEW
-                  </span>
+                  {isDecisionConfirmed ? (
+                    <span className="px-2 py-0.5 rounded bg-[#10b981]/20 text-[#10b981] font-mono text-[10px] font-semibold border border-[#10b981]/40">
+                      DECISION RECORDED
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded bg-[#f59e0b]/20 text-[#f59e0b] font-mono text-[10px] font-semibold border border-[#f59e0b]/40">
+                      REVIEW PENDING
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-[#8d90a0]">
                   SAT-SA provides the evidence and recommendation. The supervisor makes the final review decision.{' '}
@@ -1042,10 +1069,10 @@ export const FindingInvestigation: React.FC = () => {
             </div>
           </div>
 
-          {/* If already confirmed, display the official sealed confirmation card */}
-          {isDecisionConfirmed && confirmationRecord && (
+          {/* READ-ONLY RECORD STATE: Rendered when decision is confirmed */}
+          {isDecisionConfirmed && confirmationRecord ? (
             <div
-              className={`p-4 rounded bg-[#080e1d] border-2 flex flex-col gap-2.5 transition-all ${
+              className={`p-4 rounded bg-[#080e1d] border-2 flex flex-col gap-3.5 transition-all ${
                 currentSyncStatus === 'PENDING_SYNC'
                   ? 'border-[#f59e0b] shadow-[0_0_15px_rgba(245,158,11,0.1)]'
                   : currentSyncStatus === 'SYNCING'
@@ -1058,17 +1085,17 @@ export const FindingInvestigation: React.FC = () => {
                   {currentSyncStatus === 'PENDING_SYNC' ? (
                     <>
                       <Clock className="w-4 h-4 text-[#f59e0b]" />
-                      <span className="text-[#f59e0b]">SUPERVISORY DECISION RECORDED LOCALLY</span>
+                      <span className="text-[#f59e0b]">DECISION RECORDED LOCALLY</span>
                     </>
                   ) : currentSyncStatus === 'SYNCING' ? (
                     <>
                       <RefreshCw className="w-4 h-4 text-[#38BDF8] animate-spin" />
-                      <span className="text-[#38BDF8]">SYNCHRONIZING WITH SUPERVISORY LEDGER...</span>
+                      <span className="text-[#38BDF8]">SYNCHRONIZING WITH SUPERVISORY REGISTRY...</span>
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-[#10b981]" />
-                      <span className="text-[#10b981]">SUPERVISORY DECISION COMMITTED & SEALED</span>
+                      <span className="text-[#10b981]">SUPERVISORY DECISION RECORDED & SYNCED</span>
                     </>
                   )}
                 </div>
@@ -1098,195 +1125,227 @@ export const FindingInvestigation: React.FC = () => {
               </div>
 
               {currentSyncStatus === 'PENDING_SYNC' && (
-                <div className="p-2 rounded bg-[#1A1810] border border-[#f59e0b]/30 text-[11px] font-mono text-[#f59e0b] flex items-center justify-between">
+                <div className="p-2.5 rounded bg-[#1A1810] border border-[#f59e0b]/30 text-[11px] font-mono text-[#f59e0b] flex items-center justify-between">
                   <span>
-                    Offline Resilience: Decision stored in IndexedDB Vault. Survives page reloads and will auto-upload when network connectivity is re-established.
+                    Offline Resilience: Decision stored in IndexedDB Vault. Survives page reloads and will automatically synchronize once connectivity is established.
                   </span>
                 </div>
               )}
 
-              <div className="text-sm font-semibold text-[#dde2f7]">
-                {confirmationRecord.decision}
+              <div className="p-3 bg-[#131B2E]/60 rounded border border-[#1E293B]">
+                <div className="text-[10px] font-mono text-[#8d90a0] uppercase mb-1">
+                  Recorded Determination:
+                </div>
+                <div className="text-sm font-semibold text-[#dde2f7]">
+                  {confirmationRecord.decision}
+                </div>
               </div>
-              <p className="text-xs text-[#c3c6d7] font-mono leading-relaxed">
-                Rationale: "{decisionRationale}"
-              </p>
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-2 border-t border-[#1E293B] font-mono text-[10px] text-[#8d90a0] gap-1">
-                <span>Inspector: Dr. Aris Thorne (Supervisory Oversight Team)</span>
-                <span>Decided: {confirmationRecord.timestamp}</span>
+              <div className="p-3 bg-[#090D16] rounded border border-[#1E293B] text-xs font-mono text-[#c3c6d7] leading-relaxed">
+                <div className="text-[10px] text-[#8d90a0] uppercase font-semibold mb-1">
+                  Supervisory Rationale & Justification:
+                </div>
+                "{decisionRationale}"
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-2 border-t border-[#1E293B] font-mono text-[10px] text-[#8d90a0] gap-2">
+                <span>Supervisor: {finding.inspector} (Lead Supervisory Inspector)</span>
+                <span>Subsequent Supervisory Review: {confirmationRecord.timestamp}</span>
                 <span>Local Verification Hash: <code className="text-[#4cd7f6]">{confirmationRecord.commitHash}</code></span>
               </div>
+
+              {/* Action Controls for Recorded State */}
+              <div className="flex flex-wrap items-center justify-between pt-2 border-t border-[#1E293B] gap-2">
+                <button
+                  onClick={handleReopenDecision}
+                  className="px-3 py-1.5 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                  <span>Modify Decision / Reopen Review</span>
+                </button>
+                {currentSyncStatus === 'PENDING_SYNC' && (
+                  <button
+                    onClick={() => setIsQueueDrawerOpen(true)}
+                    className="px-3 py-1.5 rounded bg-[#f59e0b]/10 hover:bg-[#f59e0b]/20 text-[#f59e0b] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#f59e0b]/30"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    <span>Inspect Sync Queue ({pendingActions.length})</span>
+                  </button>
+                )}
+              </div>
             </div>
+          ) : (
+            /* INTERACTIVE REVIEW STATE: Rendered when decision is pending */
+            <>
+              {/* Decision Selection Cards (3 Options) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Option 1: Uphold (Recommended) */}
+                <label
+                  onClick={() => setSelectedDecision('UPHOLD')}
+                  className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
+                    selectedDecision === 'UPHOLD'
+                      ? 'bg-[#1A243B] border-[#ef4444]'
+                      : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="supervisor_decision"
+                        checked={selectedDecision === 'UPHOLD'}
+                        onChange={() => setSelectedDecision('UPHOLD')}
+                        className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
+                      />
+                      <span className="text-sm font-semibold text-[#ef4444]">
+                        Uphold Critical Defect
+                      </span>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded bg-[#93000a]/50 text-[#ffdad6] text-[9px] font-mono font-semibold">
+                      RECOMMENDED
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#c3c6d7] mt-0.5">
+                    Confirm Critical Defect & Recommend Corrective Action Plan. Affirms systemic breach of RULE-ESC-04 across 14 high-severity events.
+                  </p>
+                  <div className="mt-auto pt-2 font-mono text-[10px] text-[#ef4444] flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Corrective Action Plan Recommended</span>
+                  </div>
+                </label>
+
+                {/* Option 2: Downgrade */}
+                <label
+                  onClick={() => setSelectedDecision('DOWNGRADE')}
+                  className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
+                    selectedDecision === 'DOWNGRADE'
+                      ? 'bg-[#1A243B] border-[#f59e0b]'
+                      : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="supervisor_decision"
+                        checked={selectedDecision === 'DOWNGRADE'}
+                        onChange={() => setSelectedDecision('DOWNGRADE')}
+                        className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
+                      />
+                      <span className="text-sm font-semibold text-[#dde2f7]">
+                        Downgrade to Observation
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-[#c3c6d7] mt-0.5">
+                    Classifies event as an uncalibrated telemetry ingest delay rather than an operational failure. Requires supplementary logs from Apex within 48 hours.
+                  </p>
+                  <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span>Deferred Attestation Window</span>
+                  </div>
+                </label>
+
+                {/* Option 3: Dismiss */}
+                <label
+                  onClick={() => setSelectedDecision('DISMISS')}
+                  className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
+                    selectedDecision === 'DISMISS'
+                      ? 'bg-[#1A243B] border-[#8d90a0]'
+                      : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="supervisor_decision"
+                        checked={selectedDecision === 'DISMISS'}
+                        onChange={() => setSelectedDecision('DISMISS')}
+                        className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
+                      />
+                      <span className="text-sm font-semibold text-[#dde2f7]">
+                        Dismiss Finding
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-[#c3c6d7] mt-0.5">
+                    Accepts entity assertion of an authorized operational waiver or valid out-of-band supervisory phone dispatch log not captured in SIEM data.
+                  </p>
+                  <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
+                    <XCircle className="w-3 h-3" />
+                    <span>Requires Review Note</span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Inquest Rationale Editor */}
+              <div className="flex flex-col gap-1.5 mt-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-mono text-[10px] text-[#8d90a0] uppercase tracking-wider font-semibold">
+                    SUPERVISORY REVIEW RATIONALE & JUSTIFICATION
+                  </label>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Supervisory Decision Record</span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={decisionRationale}
+                  onChange={(e) => setDecisionRationale(e.target.value)}
+                  className="w-full p-3 bg-[#080e1d] rounded text-xs text-[#dde2f7] leading-relaxed focus:outline-none focus:border-[#38BDF8] resize-none font-mono border border-[#1E293B]"
+                />
+              </div>
+
+              {/* Supervisory Execution Actions Row */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
+                {/* Inspector Identity & Stamp */}
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-[#1A243B] flex items-center justify-center text-[#4cd7f6] border border-[#1E293B]">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold text-[#dde2f7]">{finding.inspector}</span>
+                    <span className="font-mono text-[10px] text-[#8d90a0]">
+                      Lead Supervisory Inspector • Supervisory Oversight Team
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    onClick={() => {
+                      setSelectedDecision('DISMISS');
+                      showToast('Drafted dismissal review note');
+                    }}
+                    className="px-3 py-2 rounded bg-[#080e1d] hover:bg-[#131B2E] text-[#8d90a0] hover:text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Dismiss with Review Note</span>
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      showToast('Formal request for supplementary telemetry dispatched to CSE-FIN-08')
+                    }
+                    className="px-3 py-2 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Request Additional Records from CSE-FIN-08</span>
+                  </button>
+
+                  <button
+                    onClick={handleConfirmDecision}
+                    className="px-4 py-2 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-[11px] font-semibold transition-colors flex items-center gap-2 shadow-md"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>CONFIRM SUPERVISORY DECISION</span>
+                  </button>
+                </div>
+              </div>
+            </>
           )}
 
-          {/* Decision Selection Cards (3 Options) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Option 1: Uphold (Recommended) */}
-            <label
-              onClick={() => setSelectedDecision('UPHOLD')}
-              className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
-                selectedDecision === 'UPHOLD'
-                  ? 'bg-[#1A243B] border-[#ef4444]'
-                  : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="supervisor_decision"
-                    checked={selectedDecision === 'UPHOLD'}
-                    onChange={() => setSelectedDecision('UPHOLD')}
-                    className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
-                  />
-                  <span className="text-sm font-semibold text-[#ef4444]">
-                    Uphold Critical Defect
-                  </span>
-                </div>
-                <span className="px-1.5 py-0.5 rounded bg-[#93000a]/50 text-[#ffdad6] text-[9px] font-mono font-semibold">
-                  RECOMMENDED
-                </span>
-              </div>
-              <p className="text-xs text-[#c3c6d7] mt-0.5">
-                Confirm Critical Defect & Recommend Corrective Action Plan. Affirms systemic breach of RULE-ESC-04 across 14 high-severity events.
-              </p>
-              <div className="mt-auto pt-2 font-mono text-[10px] text-[#ef4444] flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                <span>Corrective Action Plan Recommended</span>
-              </div>
-            </label>
-
-            {/* Option 2: Downgrade */}
-            <label
-              onClick={() => setSelectedDecision('DOWNGRADE')}
-              className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
-                selectedDecision === 'DOWNGRADE'
-                  ? 'bg-[#1A243B] border-[#f59e0b]'
-                  : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="supervisor_decision"
-                    checked={selectedDecision === 'DOWNGRADE'}
-                    onChange={() => setSelectedDecision('DOWNGRADE')}
-                    className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
-                  />
-                  <span className="text-sm font-semibold text-[#dde2f7]">
-                    Downgrade to Observation
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-[#c3c6d7] mt-0.5">
-                Classifies event as an uncalibrated telemetry ingest delay rather than an operational failure. Requires supplementary logs from Apex within 48 hours.
-              </p>
-              <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                <span>Deferred Attestation Window</span>
-              </div>
-            </label>
-
-            {/* Option 3: Dismiss */}
-            <label
-              onClick={() => setSelectedDecision('DISMISS')}
-              className={`cursor-pointer p-4 rounded flex flex-col gap-2 transition-all border ${
-                selectedDecision === 'DISMISS'
-                  ? 'bg-[#1A243B] border-[#8d90a0]'
-                  : 'bg-[#080e1d] border-[#1E293B] hover:bg-[#131B2E]'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="supervisor_decision"
-                    checked={selectedDecision === 'DISMISS'}
-                    onChange={() => setSelectedDecision('DISMISS')}
-                    className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
-                  />
-                  <span className="text-sm font-semibold text-[#dde2f7]">
-                    Dismiss Finding
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-[#c3c6d7] mt-0.5">
-                Accepts entity assertion of an authorized operational waiver or valid out-of-band supervisory phone dispatch log not captured in SIEM data.
-              </p>
-              <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
-                <XCircle className="w-3 h-3" />
-                <span>Requires Review Note</span>
-              </div>
-            </label>
-          </div>
-
-          {/* Inquest Rationale Editor */}
-          <div className="flex flex-col gap-1.5 mt-1">
-            <div className="flex items-center justify-between">
-              <label className="font-mono text-[10px] text-[#8d90a0] uppercase tracking-wider font-semibold">
-                SUPERVISORY REVIEW RATIONALE & JUSTIFICATION
-              </label>
-              <span className="font-mono text-[10px] text-[#8d90a0]">Supervisory Decision Record</span>
-            </div>
-            <textarea
-              rows={3}
-              value={decisionRationale}
-              onChange={(e) => setDecisionRationale(e.target.value)}
-              className="w-full p-3 bg-[#080e1d] rounded text-xs text-[#dde2f7] leading-relaxed focus:outline-none focus:border-[#38BDF8] resize-none font-mono border border-[#1E293B]"
-            />
-          </div>
-
-          {/* Supervisory Execution Actions Row */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-            {/* Inspector Identity & Stamp */}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#1A243B] flex items-center justify-center text-[#4cd7f6] border border-[#1E293B]">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold text-[#dde2f7]">{finding.inspector}</span>
-                <span className="font-mono text-[10px] text-[#8d90a0]">
-                  Lead Supervisory Inspector • Supervisory Oversight Team
-                </span>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                onClick={() => {
-                  setSelectedDecision('DISMISS');
-                  showToast('Drafted dismissal review note');
-                }}
-                className="px-3 py-2 rounded bg-[#080e1d] hover:bg-[#131B2E] text-[#8d90a0] hover:text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Dismiss with Review Note</span>
-              </button>
-
-              <button
-                onClick={() =>
-                  showToast('Formal request for supplementary telemetry dispatched to CSE-FIN-08')
-                }
-                className="px-3 py-2 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Request Additional Records from CSE-FIN-08</span>
-              </button>
-
-              <button
-                onClick={handleConfirmDecision}
-                className="px-4 py-2 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-[11px] font-semibold transition-colors flex items-center gap-2 shadow-md"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>CONFIRM SUPERVISORY DECISION</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Ledger Anchor Footer */}
+          {/* Evidence Integrity & Verification Footer */}
           <div className="p-2 px-3 bg-[#080e1d] rounded flex flex-col sm:flex-row sm:items-center justify-between text-[#8d90a0] font-mono text-[10px] border border-[#1E293B]">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-1">
@@ -1296,7 +1355,7 @@ export const FindingInvestigation: React.FC = () => {
               <span>•</span>
               <div className="flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-[#4cd7f6]" />
-                <span>Evidence Snapshot: <span className="text-[#4cd7f6] font-semibold">Sealed</span></span>
+                <span>Evidence Snapshot: <span className="text-[#4cd7f6] font-semibold">Ingested & Verified</span></span>
               </div>
             </div>
             <div>Verification Timestamp: <span className="text-[#dde2f7]">{finding.lastUpdated}</span></div>
