@@ -182,7 +182,7 @@ export const FindingInvestigation: React.FC = () => {
       )}
 
       {/* LEVEL 1: SUPERVISORY BANNER & CONTEXT BREADCRUMB */}
-      <div className="px-4 sm:px-6 lg:px-8 py-3 bg-[#080e1d] flex flex-col gap-2 border-b border-[#1E293B]">
+      <div className="px-4 sm:px-6 lg:px-8 xl:px-10 py-3 bg-[#080e1d] flex flex-col gap-2 border-b border-[#1E293B]">
         {/* Breadcrumb & Top Bar Controls */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 font-mono text-[11px] text-[#8d90a0]">
@@ -300,7 +300,7 @@ export const FindingInvestigation: React.FC = () => {
       </div>
 
       {/* MAIN ANALYTICAL WORKSTATION CANVAS */}
-      <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto w-full">
+      <div className="page-container p-4 sm:p-6 lg:p-8 xl:px-10 space-y-6 w-full">
 
         {/* LEVEL 2: WORKFLOW PROVENANCE DIVERGENCE MATRIX (State Machine Comparative) */}
         <section className="bg-[#151b2b] rounded p-4 sm:p-5 flex flex-col gap-4 border border-[#1E293B]">

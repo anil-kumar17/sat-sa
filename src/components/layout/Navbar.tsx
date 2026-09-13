@@ -28,7 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenMobile }) => {
   };
 
   return (
-    <header className="fixed top-0 left-0 lg:left-72 right-0 h-16 bg-[#080e1d]/95 backdrop-blur-md z-40 px-4 sm:px-6 flex items-center justify-between border-b border-[#1E293B]">
+    <header className="fixed top-0 left-0 lg:left-72 right-0 h-16 bg-[#080e1d]/95 backdrop-blur-md z-40 px-4 sm:px-6 lg:px-8 xl:px-10 flex items-center justify-between border-b border-[#1E293B]">
       {/* Left items: Window Active, Last Sync, Connectivity state, Cycle info */}
       <div className="flex items-center gap-3 sm:gap-5">
         {/* Mobile menu button */}

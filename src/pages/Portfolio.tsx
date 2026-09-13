@@ -34,7 +34,7 @@ export const Portfolio: React.FC = () => {
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-container p-4 sm:p-6 lg:p-8 xl:px-10 space-y-6 w-full">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#1E293B]">
         <div>
@@ -87,7 +87,7 @@ export const Portfolio: React.FC = () => {
       </div>
 
       {/* Grid of Supervised Entities */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredEntities.map((ent) => {
           const entityFindings = mockFindings.filter((f) => f.entityCode === ent.code);
           const hasCritical = entityFindings.some((f) => f.severity === 'CRITICAL');

@@ -24,7 +24,7 @@ export const AuditTrail: React.FC = () => {
   }, []);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-container p-4 sm:p-6 lg:p-8 xl:px-10 space-y-6 w-full">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#1E293B]">
         <div>
@@ -92,7 +92,7 @@ export const AuditTrail: React.FC = () => {
                   <td className="px-4 py-3 text-[#c3c6d7] whitespace-nowrap">
                     {event.inspector}
                   </td>
-                  <td className="px-4 py-3 text-[#8d90a0] max-w-xs truncate font-sans text-xs">
+                  <td className="px-4 py-3 text-[#8d90a0] max-w-md truncate font-sans text-xs">
                     {event.summary}
                   </td>
                   <td className="px-4 py-3 text-right text-[#4cd7f6] whitespace-nowrap">

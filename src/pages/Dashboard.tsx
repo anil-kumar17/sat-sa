@@ -61,7 +61,7 @@ export const Dashboard: React.FC = () => {
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-container p-4 sm:p-6 lg:p-8 xl:px-10 space-y-6 w-full">
       {/* Top Welcome & Operational Status Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#1E293B]">
         <div>
@@ -256,7 +256,7 @@ export const Dashboard: React.FC = () => {
                     <div className="font-semibold text-[#dde2f7]">{finding.entityName}</div>
                     <div className="font-mono text-[10px] text-[#8d90a0]">{finding.entityCode} • {finding.sector}</div>
                   </td>
-                  <td className="px-4 py-3 font-medium text-[#dde2f7] max-w-xs truncate">
+                  <td className="px-4 py-3 font-medium text-[#dde2f7] max-w-md truncate">
                     {finding.title}
                   </td>
                   <td className="px-4 py-3 font-mono text-[11px] text-[#c3c6d7]">
