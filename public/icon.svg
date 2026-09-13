@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#080E1D" rx="64"/>
+  <circle cx="256" cy="256" r="220" fill="#0D1527" stroke="#1E293B" stroke-width="8"/>
+  <!-- Shield emblem -->
+  <path d="M256 80 L390 140 V260 C390 350 256 420 256 420 C256 420 122 350 122 260 V140 Z" fill="#131B2E" stroke="#38BDF8" stroke-width="14" stroke-linejoin="round"/>
+  <!-- Inner shield core -->
+  <path d="M256 120 L354 165 V255 C354 325 256 380 256 380 C256 380 158 325 158 255 V165 Z" fill="#0A1224" stroke="#4CD7F6" stroke-width="6"/>
+  <!-- Checkmark / supervisory pulse -->
+  <path d="M210 255 L245 290 L305 220" fill="none" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Telemetry dots -->
+  <circle cx="256" cy="180" r="8" fill="#4CD7F6"/>
+  <circle cx="256" cy="335" r="8" fill="#4CD7F6"/>
+  <!-- Lettering -->
+  <text x="256" y="470" text-anchor="middle" fill="#8D90A0" font-family="monospace" font-size="32" font-weight="bold" letter-spacing="4">SAT-SA</text>
+</svg>
