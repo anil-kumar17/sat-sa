@@ -112,7 +112,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenMobile }) => {
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#131B2E] border border-[#1E293B]">
           <ShieldCheck className="w-3.5 h-3.5 text-[#4cd7f6]" />
           <span className="text-[11px] font-mono text-[#4cd7f6] font-semibold">
-            SHA-256 Validated
+            SHA-256 Verified
           </span>
         </div>
       </div>

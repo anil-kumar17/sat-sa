@@ -105,7 +105,7 @@ export const EvidenceRegistry: React.FC = () => {
           </span>
         </div>
         <span className="text-[10px] font-mono text-[#8d90a0]">
-          Evidence Integrity: SHA-256 Validated
+          Evidence Integrity: SHA-256 Verified
         </span>
       </div>
 

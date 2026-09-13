@@ -59,7 +59,7 @@ export const FindingInvestigation: React.FC = () => {
   // Human Supervisor Decision State
   const [selectedDecision, setSelectedDecision] = useState<'UPHOLD' | 'DOWNGRADE' | 'DISMISS'>('UPHOLD');
   const [decisionRationale, setDecisionRationale] = useState<string>(
-    'Affirmed as Critical Defect (P0). Ingested telemetry confirms 14 Tier-3 alerts closed without requisite Tier-3 supervisory handshake, directly contravening Section 4.2 Mandatory Escalation Protocols for RTGS targets. Operational risk of undetected persistence during financial clearing cycles necessitates formal CAP submission within 10 business days.'
+    'Affirmed as Critical Defect (P0). Ingested telemetry confirms 14 Tier-3 alerts closed without requisite Tier-3 supervisory handshake, directly contravening Section 4.2 Mandatory Escalation Protocols for RTGS targets. Operational risk of undetected persistence during financial clearing cycles supports recommended Corrective Action Plan (CAP) submission within 10 business days.'
   );
   const [isDecisionConfirmed, setIsDecisionConfirmed] = useState<boolean>(false);
   const [confirmationRecord, setConfirmationRecord] = useState<{
@@ -702,7 +702,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Deterministic Trigger: <code className="text-[#4cd7f6]">{finding.ruleCode}</code></span>
               </div>
               <div className="text-[#8d90a0]">
-                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> (84 Records Validated)
+                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> (84 Records Verified)
               </div>
             </div>
           </section>

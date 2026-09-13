@@ -318,7 +318,7 @@ export const Findings: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 font-mono whitespace-nowrap">
                       <span className="text-[#4cd7f6] font-semibold">{finding.confidence}%</span>
-                      <div className="text-[10px] text-[#8d90a0]">Validated</div>
+                      <div className="text-[10px] text-[#8d90a0]">Verified</div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1 font-mono text-[11px] text-[#10b981]">
