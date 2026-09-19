@@ -1,6 +1,31 @@
+import type { CaseEvaluationDataQuality } from './analytics';
+export * from './negativeSpace';
+export * from './analytics';
+
 export type SeverityLevel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type FindingStatus = 'OPEN' | 'IN_REVIEW' | 'UPHELD' | 'DOWNGRADED' | 'DISMISSED';
+
+export interface FindingProvenance {
+  ruleCode: string;
+  submissionId: string;
+  entityId: string;
+  entityCode: string;
+  assessmentPeriod?: string;
+  applicableCaseCount: number;
+  expectedCount: number;
+  observedCount: number;
+  gapCount: number;
+  gapRate: number;
+  affectedCaseIds: string[];
+  evidenceRecordIds: string[];
+  sourceRecordIds: string[];
+  dataQualityLimitedCount: number;
+  dataQualityLimitedCaseIds?: string[];
+  overallDataQuality: 'SUFFICIENT' | 'DATA_QUALITY_LIMITED' | 'INSUFFICIENT_DATA';
+  evaluatedAt: string;
+  sourceIntegrityFingerprint?: string;
+}
 
 export interface Finding {
   id: string;
@@ -35,6 +60,23 @@ export interface Finding {
   sha256Hash: string;
   evidenceTimestamp: string;
   recommendedAction: string;
+
+  // Step 3 Traceability & Provenance (optional for backward compatibility)
+  submissionId?: string;
+  assessmentPeriod?: string;
+  affectedCaseIds?: string[];
+  evidenceRecordIds?: string[];
+  sourceRecordIds?: string[];
+  applicableCaseCount?: number;
+  expectedCount?: number;
+  observedCount?: number;
+  gapCount?: number;
+  gapRate?: number;
+  dataQualityLimitedCount?: number;
+  dataQualityLimitedCaseIds?: string[];
+  overallDataQuality?: 'SUFFICIENT' | 'DATA_QUALITY_LIMITED' | 'INSUFFICIENT_DATA';
+  sourceIntegrityFingerprint?: string;
+  provenance?: FindingProvenance;
 }
 
 export interface Entity {
@@ -69,6 +111,10 @@ export interface AssessmentCycle {
 
 export interface ForensicRecord {
   incidentId: string;
+  sourceRecordId?: string;
+  submissionId?: string;
+  caseId?: string;
+  findingId?: string;
   alertTimestamp: string;
   triageComplete: string;
   triageDurationSeconds: number;
@@ -78,25 +124,27 @@ export interface ForensicRecord {
   dispositionGiven: string;
   provenanceHash: string;
   auditActionStatus: 'Inspected' | 'Flagged' | 'Verified';
+  dataQualityStatus?: CaseEvaluationDataQuality;
   rawPayload: {
-    incident_id: string;
-    entity_urn: string;
-    classification: string;
-    initial_triage: {
+    incident_id?: string;
+    entity_urn?: string;
+    classification?: string;
+    initial_triage?: {
       operator_id: string;
       timestamp: string;
       threat_vector: string;
     };
-    escalation_event_recorded: string | null;
-    escalation_handshake_tokens: string[];
-    supervisor_review_signoff: boolean;
-    closure_event: {
+    escalation_event_recorded?: string | null;
+    escalation_handshake_tokens?: string[];
+    supervisor_review_signoff?: boolean;
+    closure_event?: {
       disposition: string;
       timestamp: string;
       elapsed_seconds: number;
     };
-    audit_violation_flag: boolean;
-    rule_violated: string;
+    audit_violation_flag?: boolean;
+    rule_violated?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -135,13 +183,27 @@ export interface AuditTrailEvent {
   id: string;
   timestamp: string;
   inspector: string;
-  actionType: 'DECISION_COMMITTED' | 'EVIDENCE_INSPECTED' | 'TELEMETRY_INGEST' | 'FINDING_FLAGGED' | 'CAP_ISSUED';
+  actionType:
+    | 'DECISION_COMMITTED'
+    | 'EVIDENCE_INSPECTED'
+    | 'TELEMETRY_INGEST'
+    | 'FINDING_FLAGGED'
+    | 'CAP_ISSUED'
+    | 'SUBMISSION_IMPORTED'
+    | 'SUBMISSION_VALIDATED'
+    | 'SUBMISSION_REJECTED'
+    | 'FINDING_GENERATED'
+    | 'FINDING_REVIEWED'
+    | 'SUPERVISOR_DECISION_RECORDED';
   targetEntity: string;
   targetRef: string;
   provenanceHash: string;
   integrityStatus: 'VALIDATED' | 'SEALED' | 'PENDING';
   summary: string;
 }
+
+export * from './submission';
+export * from './analytics';
 
 // ==========================================
 // OFFLINE-FIRST & SYNCHRONIZATION ARCHITECTURE
@@ -178,12 +240,19 @@ export interface IFindingRepository {
   updateStatus(id: string, status: FindingStatus): Promise<Finding>;
   getSupervisorDecision(findingId: string): Promise<SupervisorDecision | undefined>;
   saveSupervisorDecision(decision: SupervisorDecision): Promise<void>;
+  save(finding: Finding): Promise<Finding>;
+  getBySubmissionId?(submissionId: string): Promise<Finding[]>;
+  getByRuleAndSubmission?(ruleCode: string, submissionId: string): Promise<Finding | undefined>;
 }
 
 export interface IEvidenceRepository {
   getAll(): Promise<ForensicRecord[]>;
   getById(incidentId: string): Promise<ForensicRecord | undefined>;
+  getByIds(incidentIds: string[]): Promise<ForensicRecord[]>;
+  getByFindingId(findingId: string): Promise<ForensicRecord[]>;
   search(query: string): Promise<ForensicRecord[]>;
+  save(record: ForensicRecord): Promise<ForensicRecord>;
+  saveMany(records: ForensicRecord[]): Promise<void>;
 }
 
 export interface IAssessmentRepository {

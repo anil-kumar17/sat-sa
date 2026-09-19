@@ -30,11 +30,15 @@ import {
   AssessmentCycle,
   AuditTrailEvent,
   SupervisorDecision,
-  PendingSyncAction
+  PendingSyncAction,
+  CSESubmission,
+  SourceRecord,
+  NormalizedCaseRecord,
+  DataQualityReport
 } from '../types';
 
 const DB_NAME = 'sat_sa_supervisory_vault_v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface SATDatabaseSchema {
   findings: {
@@ -69,6 +73,22 @@ export interface SATDatabaseSchema {
     key: string;
     value: { key: string; value: string };
   };
+  submissions: {
+    key: string;
+    value: CSESubmission;
+  };
+  source_records: {
+    key: string;
+    value: SourceRecord;
+  };
+  normalized_records: {
+    key: string;
+    value: NormalizedCaseRecord;
+  };
+  data_quality_reports: {
+    key: string;
+    value: DataQualityReport;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<SATDatabaseSchema>> | null = null;
@@ -83,7 +103,11 @@ const inMemoryFallback = {
   audit_trail: new Map<string, AuditTrailEvent>(),
   supervisor_decisions: new Map<string, SupervisorDecision>(),
   sync_queue: new Map<string, PendingSyncAction>(),
-  metadata: new Map<string, { key: string; value: string }>()
+  metadata: new Map<string, { key: string; value: string }>(),
+  submissions: new Map<string, CSESubmission>(),
+  source_records: new Map<string, SourceRecord>(),
+  normalized_records: new Map<string, NormalizedCaseRecord>(),
+  data_quality_reports: new Map<string, DataQualityReport>()
 };
 
 function seedInMemory() {
@@ -137,6 +161,26 @@ export async function getSATDatabase(): Promise<IDBPDatabase<SATDatabaseSchema> 
         // Metadata store
         if (!db.objectStoreNames.contains('metadata')) {
           db.createObjectStore('metadata', { keyPath: 'key' });
+        }
+        // Submissions store
+        if (!db.objectStoreNames.contains('submissions')) {
+          db.createObjectStore('submissions', { keyPath: 'submissionId' });
+        }
+        // Source records store (preserving immutable raw input payloads)
+        if (!db.objectStoreNames.contains('source_records')) {
+          const store = db.createObjectStore('source_records', { keyPath: 'id' });
+          store.createIndex('by_submission', 'submissionId');
+        }
+        // Normalized records store
+        if (!db.objectStoreNames.contains('normalized_records')) {
+          const store = db.createObjectStore('normalized_records', { keyPath: 'id' });
+          store.createIndex('by_submission', 'submissionId');
+          store.createIndex('by_entity', 'entityId');
+          store.createIndex('by_case', 'caseId');
+        }
+        // Data quality reports store
+        if (!db.objectStoreNames.contains('data_quality_reports')) {
+          db.createObjectStore('data_quality_reports', { keyPath: 'submissionId' });
         }
       }
     }).catch((err) => {

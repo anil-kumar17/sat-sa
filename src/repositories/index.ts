@@ -4,3 +4,7 @@ export * from './assessmentRepository';
 export * from './entityRepository';
 export * from './auditRepository';
 export * from './syncRepository';
+export * from './submissionRepository';
+export * from './sourceRecordRepository';
+export * from './normalizedRecordRepository';
+export * from './dataQualityRepository';

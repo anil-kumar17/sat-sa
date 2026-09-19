@@ -19,9 +19,59 @@ export class IndexedDBEvidenceRepository implements IEvidenceRepository {
       const db = await getSATDatabase();
       if (!db) return inMemoryFallback.evidence.get(incidentId) || mockForensicRecords.find(r => r.incidentId === incidentId);
       const record = await db.get('evidence', incidentId);
-      return record || mockForensicRecords.find(r => r.incidentId === incidentId);
+      return record || inMemoryFallback.evidence.get(incidentId) || mockForensicRecords.find(r => r.incidentId === incidentId);
     } catch {
       return inMemoryFallback.evidence.get(incidentId) || mockForensicRecords.find(r => r.incidentId === incidentId);
+    }
+  }
+
+  async getByIds(incidentIds: string[]): Promise<ForensicRecord[]> {
+    if (!incidentIds || incidentIds.length === 0) return [];
+    const results: ForensicRecord[] = [];
+    for (const id of incidentIds) {
+      const rec = await this.getById(id);
+      if (rec) results.push(rec);
+    }
+    return results;
+  }
+
+  async getByFindingId(findingId: string): Promise<ForensicRecord[]> {
+    const all = await this.getAll();
+    return all.filter(r => r.findingId === findingId);
+  }
+
+  async save(record: ForensicRecord): Promise<ForensicRecord> {
+    try {
+      const db = await getSATDatabase();
+      if (!db) {
+        inMemoryFallback.evidence.set(record.incidentId, record);
+        return record;
+      }
+      await db.put('evidence', record);
+      inMemoryFallback.evidence.set(record.incidentId, record);
+      return record;
+    } catch {
+      inMemoryFallback.evidence.set(record.incidentId, record);
+      return record;
+    }
+  }
+
+  async saveMany(records: ForensicRecord[]): Promise<void> {
+    if (!records || records.length === 0) return;
+    try {
+      const db = await getSATDatabase();
+      if (!db) {
+        records.forEach(r => inMemoryFallback.evidence.set(r.incidentId, r));
+        return;
+      }
+      const tx = db.transaction('evidence', 'readwrite');
+      for (const record of records) {
+        await tx.store.put(record);
+        inMemoryFallback.evidence.set(record.incidentId, record);
+      }
+      await tx.done;
+    } catch {
+      records.forEach(r => inMemoryFallback.evidence.set(r.incidentId, r));
     }
   }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   ShieldAlert,
   ArrowLeft,
@@ -18,25 +18,32 @@ import {
   Shield,
   Clock,
   Send,
-  HelpCircle,
   Gavel,
   ShieldCheck,
-  ExternalLink,
   Terminal,
   Activity,
-  FileText,
   RefreshCw,
-  WifiOff,
-  Database
+  Database,
+  Hash,
+  X,
+  FileCode
 } from 'lucide-react';
 import { mockFindings, mockForensicRecords } from '../data/mockData';
-import { Finding, ForensicRecord } from '../types';
+import { Finding, ForensicRecord, SourceRecord } from '../types';
 import { useOffline } from '../context/OfflineContext';
-import { findingsRepository, evidenceRepository } from '../repositories';
+import {
+  findingsRepository,
+  evidenceRepository,
+  sourceRecordRepository,
+  auditRepository
+} from '../repositories';
 
 export const FindingInvestigation: React.FC = () => {
-  const { findingId } = useParams<{ findingId: string }>();
+  const { findingId: routeFindingId } = useParams<{ findingId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const activeFindingId = routeFindingId || searchParams.get('id') || 'FND-2025-014';
 
   const {
     connectivityState,
@@ -45,22 +52,22 @@ export const FindingInvestigation: React.FC = () => {
     setIsQueueDrawerOpen
   } = useOffline();
 
-  // Local state for the finding so status updates reflect immediately
+  // Primary states
   const [finding, setFinding] = useState<Finding>(
-    mockFindings.find((f) => f.id === findingId) || mockFindings[0]
+    mockFindings.find((f) => f.id === activeFindingId) || mockFindings[0]
   );
-  const [forensicRecords, setForensicRecords] = useState<ForensicRecord[]>(mockForensicRecords);
+  const [forensicRecords, setForensicRecords] = useState<ForensicRecord[]>([]);
+  const [sourceRecordsMap, setSourceRecordsMap] = useState<Map<string, SourceRecord>>(new Map());
+  const [inspectingSourceRecord, setInspectingSourceRecord] = useState<SourceRecord | null>(null);
 
-  // State for expandable telemetry rows in the Forensic Explorer
-  const [expandedRow, setExpandedRow] = useState<string>('INC-8821');
+  // Table state
+  const [expandedRow, setExpandedRow] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState<string>('');
 
   // Human Supervisor Decision State
   const [selectedDecision, setSelectedDecision] = useState<'UPHOLD' | 'DOWNGRADE' | 'DISMISS'>('UPHOLD');
-  const [decisionRationale, setDecisionRationale] = useState<string>(
-    'Affirmed as Critical Defect (P0). Ingested telemetry confirms 14 Tier-3 alerts closed without requisite Tier-3 supervisory handshake, directly contravening Section 4.2 Mandatory Escalation Protocols for RTGS targets. Operational risk of undetected persistence during financial clearing cycles supports recommended Corrective Action Plan (CAP) submission within 10 business days.'
-  );
+  const [decisionRationale, setDecisionRationale] = useState<string>('');
   const [isDecisionConfirmed, setIsDecisionConfirmed] = useState<boolean>(false);
   const [confirmationRecord, setConfirmationRecord] = useState<{
     decision: string;
@@ -68,7 +75,7 @@ export const FindingInvestigation: React.FC = () => {
     commitHash: string;
   } | null>(null);
 
-  // Modal / Toast for export or additional records
+  // Toast notifications
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -76,21 +83,57 @@ export const FindingInvestigation: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Load finding, decision, and evidence from local repository on mount
+  // Load finding, decision, explicit evidence, and source records
   useEffect(() => {
     async function loadData() {
-      const activeId = findingId || 'FND-2025-014';
-      const storedFinding = await findingsRepository.getById(activeId);
-      if (storedFinding) {
-        setFinding(storedFinding);
+      // 1. Fetch Finding
+      let currentFinding = await findingsRepository.getById(activeFindingId);
+      if (!currentFinding) {
+        currentFinding = mockFindings.find((f) => f.id === activeFindingId) || mockFindings[0];
+      }
+      setFinding(currentFinding);
+
+      // Default rationale based on current finding
+      const defaultRationale = currentFinding.summary
+        ? `Affirmed as Critical Defect (${currentFinding.defectCode || 'P0'}). Ingested records confirm that ${currentFinding.flaggedIncidentsCount} critical alerts closed without requisite supervisory escalation under ${currentFinding.ruleCode} (${currentFinding.targetProtocol || 'Mandatory Escalation Protocol'}). Human supervisory review affirms corrective action plan.`
+        : 'Affirmed as Critical Defect (P0). Ingested telemetry confirms critical alerts closed without requisite supervisory handshake, directly contravening Mandatory Escalation Protocols.';
+      setDecisionRationale(defaultRationale);
+
+      // 2. Fetch specific evidence by ID list - STRICT PROVENANCE: NEVER CALL evidenceRepository.getAll()!
+      const evidenceIds = currentFinding.evidenceRecordIds || currentFinding.affectedCaseIds;
+      if (evidenceIds && evidenceIds.length > 0) {
+        const specificEvidence = await evidenceRepository.getByIds(evidenceIds);
+        setForensicRecords(specificEvidence);
+        if (specificEvidence.length > 0) {
+          setExpandedRow(specificEvidence[0].incidentId);
+        }
+      } else if (currentFinding.id === 'FND-2025-014') {
+        // Fallback for initial demo finding
+        setForensicRecords(mockForensicRecords);
+        setExpandedRow('INC-8821');
+      } else {
+        setForensicRecords([]);
       }
 
-      const storedEvidence = await evidenceRepository.getAll();
-      if (storedEvidence && storedEvidence.length > 0) {
-        setForensicRecords(storedEvidence);
+      // 3. Fetch source records if referenced for complete provenance trace
+      const srcIds = currentFinding.sourceRecordIds || [];
+      const sMap = new Map<string, SourceRecord>();
+      if (srcIds.length > 0) {
+        for (const sId of srcIds) {
+          const sRecord = await sourceRecordRepository.getById(sId);
+          if (sRecord) {
+            sMap.set(sId, sRecord);
+            const caseId = (sRecord.rawPayload?.case_id || sRecord.rawPayload?.caseId || '') as string;
+            if (caseId) {
+              sMap.set(caseId, sRecord);
+            }
+          }
+        }
       }
+      setSourceRecordsMap(sMap);
 
-      const existingDecision = await findingsRepository.getSupervisorDecision(activeId);
+      // 4. Load existing decision
+      const existingDecision = await findingsRepository.getSupervisorDecision(currentFinding.id);
       if (existingDecision) {
         setIsDecisionConfirmed(true);
         setSelectedDecision(existingDecision.decision);
@@ -100,11 +143,22 @@ export const FindingInvestigation: React.FC = () => {
           timestamp: existingDecision.decidedAt,
           commitHash: existingDecision.sha256Verification
         });
+      } else {
+        setIsDecisionConfirmed(false);
+        setConfirmationRecord(null);
       }
     }
 
     loadData();
-  }, [findingId]);
+  }, [activeFindingId]);
+
+  // Derived metrics ensuring dynamic synchronization with Finding model
+  const applicableCount = finding.applicableCaseCount ?? finding.totalEvaluatedIncidents;
+  const gapCount = finding.gapCount ?? finding.flaggedIncidentsCount;
+  const observedCount = finding.observedCount ?? Math.max(0, applicableCount - gapCount);
+  const gapRateFormatted = finding.gapRate !== undefined
+    ? `${finding.gapRate.toFixed(1)}%`
+    : finding.handshakeRate;
 
   // Determine current synchronization status for this finding
   const queuedAction = pendingActions.find((a) => a.findingId === finding.id);
@@ -114,10 +168,10 @@ export const FindingInvestigation: React.FC = () => {
     ? (connectivityState === 'OFFLINE' ? 'PENDING_SYNC' : 'SYNCED')
     : null;
 
-  const handleCopyJson = (record: ForensicRecord) => {
-    navigator.clipboard.writeText(JSON.stringify(record.rawPayload, null, 2));
-    setCopiedId(record.incidentId);
-    showToast(`Copied telemetry payload for ${record.incidentId} to clipboard`);
+  const handleCopyJson = (payload: unknown, id: string) => {
+    navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setCopiedId(id);
+    showToast(`Copied raw payload for ${id} to clipboard`);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -136,6 +190,22 @@ export const FindingInvestigation: React.FC = () => {
         decisionRationale,
         finding.inspector
       );
+
+      // Log formal audit trail event for supervisor decision
+      try {
+        await auditRepository.logEvent({
+          timestamp: new Date().toISOString(),
+          inspector: finding.inspector,
+          actionType: 'SUPERVISOR_DECISION_RECORDED',
+          targetEntity: finding.entityCode,
+          targetRef: finding.id,
+          provenanceHash: finding.sha256Hash || finding.sourceIntegrityFingerprint || 'SHA-256 Verified',
+          integrityStatus: 'VALIDATED',
+          summary: `Supervisor ${finding.inspector} recorded decision '${selectedDecision}' on finding ${finding.id}.`
+        });
+      } catch (err) {
+        console.warn('Could not log supervisor audit event:', err);
+      }
 
       setConfirmationRecord({
         decision:
@@ -170,7 +240,6 @@ export const FindingInvestigation: React.FC = () => {
   };
 
   const filteredRecords = forensicRecords.filter(
-
     (rec) =>
       rec.incidentId.toLowerCase().includes(filterQuery.toLowerCase()) ||
       rec.provenanceHash.toLowerCase().includes(filterQuery.toLowerCase()) ||
@@ -196,8 +265,8 @@ export const FindingInvestigation: React.FC = () => {
               <span>Overview</span>
             </Link>
             <span>/</span>
-            <Link to="/" className="hover:text-[#dde2f7] transition-colors">
-              Priority Docket
+            <Link to="/findings" className="hover:text-[#dde2f7] transition-colors">
+              Findings Registry
             </Link>
             <span>/</span>
             <span className="text-[#4cd7f6]">{finding.entityName} ({finding.entityCode})</span>
@@ -228,11 +297,11 @@ export const FindingInvestigation: React.FC = () => {
               </span>
             )}
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/findings')}
               className="px-3 py-1 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Return to Docket</span>
+              <span>Return to Registry</span>
             </button>
           </div>
         </div>
@@ -243,7 +312,7 @@ export const FindingInvestigation: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded bg-[#93000a] text-[#ffdad6] font-mono text-[11px] font-semibold tracking-wider flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3 text-[#ffb4ab]" />
-                CRITICAL DEFECT // {finding.defectCode}
+                CRITICAL DEFECT // {finding.defectCode || 'P0'}
               </span>
               <span className="font-mono text-[11px] text-[#03b5d3] font-semibold tracking-wider">
                 {finding.ruleCode} BREACH
@@ -266,16 +335,16 @@ export const FindingInvestigation: React.FC = () => {
           {/* Invariant Diagnostic Summary Pill */}
           <div className="flex items-center gap-3 sm:gap-4 p-2.5 bg-[#151b2b] rounded self-start lg:self-center border border-[#1E293B]">
             <div className="flex flex-col pr-3">
-              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Signal Invariant</span>
+              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Gap Rate</span>
               <span className="text-sm font-semibold font-mono text-[#ef4444]">
-                {finding.handshakeRate} Handshake
+                {gapRateFormatted}
               </span>
             </div>
             <div className="w-px h-7 bg-[#1E293B]"></div>
             <div className="flex flex-col pr-3">
-              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Flagged Incidents</span>
+              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Flagged Cases</span>
               <span className="text-sm font-semibold font-mono text-[#4cd7f6]">
-                {finding.flaggedIncidentsCount} Incidents
+                {gapCount} Cases
               </span>
             </div>
             <div className="w-px h-7 bg-[#1E293B]"></div>
@@ -314,7 +383,7 @@ export const FindingInvestigation: React.FC = () => {
             </span>
           </div>
           <div className="p-2 bg-[#151b2b] rounded flex flex-col border border-[#1E293B]/60">
-            <span className="text-[#8d90a0] text-[10px]">Review / Remediation Deadline</span>
+            <span className="text-[#8d90a0] text-[10px]">Remediation Deadline</span>
             <span className="text-[#ef4444] font-semibold">{finding.remediationDeadline}</span>
           </div>
         </div>
@@ -322,6 +391,22 @@ export const FindingInvestigation: React.FC = () => {
 
       {/* MAIN ANALYTICAL WORKSTATION CANVAS */}
       <div className="page-container p-4 sm:p-6 lg:p-8 xl:px-10 space-y-6 w-full">
+
+        {/* PROMINENT DATA QUALITY LIMITATION CALLOUT (Step 3 Requirement) */}
+        {((finding.dataQualityLimitedCount ?? 0) > 0 || finding.overallDataQuality === 'DATA_QUALITY_LIMITED') && (
+          <div className="p-4 rounded-lg bg-[#78350f]/25 border-l-4 border-[#f59e0b] border-[#f59e0b]/40 text-[#fde047] flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-[#f59e0b] shrink-0 mt-0.5" />
+            <div className="space-y-1 text-xs">
+              <div className="font-mono font-bold uppercase tracking-wider text-[#f59e0b]">
+                SUPERVISORY DATA QUALITY NOTICE: ANALYSIS LIMITED BY SOURCE DATA QUALITY
+              </div>
+              <p className="leading-relaxed text-[#fde047]/95">
+                {finding.dataQualityLimitedCount || 1} evaluated operational case(s) in this submission had data-quality limitations ({finding.dataQualityLimitedCaseIds?.join(', ') || 'flagged'}).
+                Analysis is strictly constrained by source data quality. These cases are flagged for manual review and are <strong>NOT</strong> counted as confirmed operational gaps.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* LEVEL 2: WORKFLOW PROVENANCE DIVERGENCE MATRIX (State Machine Comparative) */}
         <section className="bg-[#151b2b] rounded p-4 sm:p-5 flex flex-col gap-4 border border-[#1E293B]">
@@ -335,7 +420,7 @@ export const FindingInvestigation: React.FC = () => {
                   Workflow Provenance Divergence Matrix
                 </h2>
                 <p className="text-xs text-[#8d90a0]">
-                  Comparative state machine: Standard operating baseline vs. ingested telemetry trace.
+                  Comparative state machine: Standard operating baseline vs. ingested operational trace.
                 </p>
               </div>
             </div>
@@ -356,38 +441,35 @@ export const FindingInvestigation: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] text-[#4cd7f6] uppercase tracking-wider font-semibold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-                  TRACK A: CONTROL BASELINE (STANDARD OPERATING PROCEDURE)
+                  TRACK A: CONTROL BASELINE ({finding.ruleCode} MANDATORY ESCALATION)
                 </span>
                 <span className="font-mono text-[10px] text-[#8d90a0]">
-                  Baseline SLA: 45 Minutes Cumulative
+                  Baseline SLA: Mandatory Escalation Before Closure
                 </span>
               </div>
 
               {/* Expected Pipeline Steps */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 mt-1">
-                {/* Step 1 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 01</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Alert Ingest</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">SIEM Telemetry Catch</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Event Ingestion Catch</span>
                   <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">t0 (Offset 0.0s)</span>
                 </div>
 
-                {/* Step 2 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 02</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
-                  <span className="text-xs font-semibold text-[#dde2f7]">Tier-1 Triage</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Max 15m Response SLA</span>
+                  <span className="text-xs font-semibold text-[#dde2f7]">Triage Assessment</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Severity Evaluated</span>
                   <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Disposition Assigned</span>
                 </div>
 
-                {/* Step 3 (Required Key Step) */}
                 <div className="p-3 bg-[#1A243B] rounded flex flex-col gap-1 border border-[#03b5d3]/50">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#03b5d3] font-semibold">
@@ -395,45 +477,43 @@ export const FindingInvestigation: React.FC = () => {
                     </span>
                     <Shield className="w-3.5 h-3.5 text-[#03b5d3]" />
                   </div>
-                  <span className="text-xs font-semibold text-[#acedff]">Tier-3 Escalation</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Dual-Key Handshake Token</span>
-                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Required for P0/P1</span>
+                  <span className="text-xs font-semibold text-[#acedff]">Mandatory Escalation</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Escalation Evidence Record</span>
+                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Required for Critical</span>
                 </div>
 
-                {/* Step 4 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 04</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
-                  <span className="text-xs font-semibold text-[#dde2f7]">CSIRT Containment</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Active Isolation Matrix</span>
-                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Forensic Memory Snapshot</span>
+                  <span className="text-xs font-semibold text-[#dde2f7]">Supervisory Signoff</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Escalation Attestation</span>
+                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Verification Ledger</span>
                 </div>
 
-                {/* Step 5 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 05</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Attested Closure</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Supervisor Counter-Sign</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Final Disposal Validated</span>
                   <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Archived to Vault</span>
                 </div>
               </div>
             </div>
 
-            {/* Visual Flow Connector & Bypass Arrow */}
+            {/* Visual Flow Connector */}
             <div className="py-1 flex items-center justify-between px-2 text-[#8d90a0]">
               <div className="flex items-center gap-2 text-[#ef4444] font-mono text-[10px]">
                 <ArrowLeft className="w-3.5 h-3.5 rotate-[-45deg]" />
                 <span className="font-semibold uppercase tracking-wider">
-                  Observed Invariant Deviation: Escalation Step Bypassed Directly Into Closure
+                  Observed Invariant Deviation: Escalation Evidence Absent Prior to Closure
                 </span>
               </div>
               <span className="font-mono text-[10px] text-[#8d90a0]">
-                FLOW CONFLICT // DELTA DETECTED
+                FLOW CONFLICT // EXECUTION GAP IDENTIFIED
               </span>
             </div>
 
@@ -442,40 +522,37 @@ export const FindingInvestigation: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] text-[#ef4444] uppercase tracking-wider font-semibold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]"></span>
-                  TRACK B: OBSERVED TELEMETRY INGEST (CYCLE 14 FORENSIC ARTIFACTS)
+                  TRACK B: OBSERVED OPERATIONAL STREAM ({finding.submissionId || 'Operational Batch'})
                 </span>
                 <span className="font-mono text-[10px] text-[#ef4444] font-semibold">
-                  Anomaly: Premature Closure in 4.2m Avg
+                  Deviation: {gapCount} Cases Closed Without Recorded Escalation
                 </span>
               </div>
 
               {/* Observed Pipeline Steps */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 mt-1">
-                {/* Step 1 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 01</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Alert Ingest</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">14 Ingest Events Sealed</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">100% Ingested</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">{applicableCount} Cases Ingested</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">100% Sealed</span>
                 </div>
 
-                {/* Step 2 */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 02</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#4cd7f6]" />
                   </div>
-                  <span className="text-xs font-semibold text-[#dde2f7]">Tier-1 Triage</span>
+                  <span className="text-xs font-semibold text-[#dde2f7]">Triage Complete</span>
                   <span className="font-mono text-[10px] text-[#ef4444] font-semibold">
-                    Classified: Critical P0
+                    Target: Critical Severity
                   </span>
-                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">Duration: 1.8 mins</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">Triage Recorded</span>
                 </div>
 
-                {/* Step 3: CRITICAL DEFECT MISSING */}
                 <div className="p-3 bg-[#93000a]/30 rounded flex flex-col gap-1 border border-[#ef4444]/60">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#ffb4ab] font-semibold">
@@ -484,51 +561,45 @@ export const FindingInvestigation: React.FC = () => {
                     <XCircle className="w-3.5 h-3.5 text-[#ef4444]" />
                   </div>
                   <span className="text-xs font-bold text-[#ffdad6]">ESCALATION ABSENT</span>
-                  <span className="font-mono text-[10px] text-[#ffdad6]">0 Handshake Packets</span>
+                  <span className="font-mono text-[10px] text-[#ffdad6]">{observedCount} Recorded Escalations</span>
                   <span className="font-mono text-[10px] text-[#ef4444] font-semibold mt-1">
-                    VIOLATION DETECTED
+                    {gapCount} GAPS DETECTED
                   </span>
                 </div>
 
-                {/* Step 4: BYPASSED */}
                 <div className="p-3 bg-[#1A243B]/40 rounded flex flex-col gap-1 opacity-60 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 04</span>
                     <span className="font-mono text-[10px] text-[#8d90a0] line-through">N/A</span>
                   </div>
                   <span className="text-xs font-semibold text-[#8d90a0] line-through">
-                    CSIRT Containment
+                    Supervisory Review
                   </span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Bypassed Entirely</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">0 Log Entries</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Bypassed / Not Logged</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">0 Signoff Records</span>
                 </div>
 
-                {/* Step 5: PREMATURE CLOSURE */}
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#8d90a0]">STEP 05</span>
                     <AlertTriangle className="w-3.5 h-3.5 text-[#ef4444]" />
                   </div>
-                  <span className="text-xs font-semibold text-[#ef4444]">Premature Direct Closure</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">L1 Operator Disposal</span>
+                  <span className="text-xs font-semibold text-[#ef4444]">Direct Case Closure</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Operational Disposal</span>
                   <span className="font-mono text-[10px] text-[#ef4444] font-semibold mt-1">
-                    4.2m Avg Close Time
+                    Closed Without Escalation
                   </span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Analytical Footnote */}
-          <div className="p-2.5 bg-[#131B2E] rounded flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-[11px] border border-[#1E293B]">
-            <div className="flex items-center gap-2 text-[#c3c6d7]">
-              <BrainCircuit className="w-3.5 h-3.5 text-[#4cd7f6]" />
-              <span>
-                Deterministic Detection Trigger: <code className="text-[#4cd7f6]">{finding.ruleCode}</code> (Required Control Engine)
-              </span>
-            </div>
+          <div className="flex items-center justify-between p-2.5 bg-[#080e1d] rounded font-mono text-[11px] border border-[#1E293B]">
             <div className="text-[#8d90a0]">
-              Mathematical Grounding: {finding.flaggedIncidentsCount} out of {finding.totalEvaluatedIncidents} high-severity incidents show exactly zero Tier-3 supervisory handshakes.
+              Mathematical Grounding: {gapCount} out of {applicableCount} applicable critical cases lack required escalation evidence in submitted records.
+            </div>
+            <div className="text-[#4cd7f6] font-semibold">
+              Execution Gap Rate = {gapRateFormatted}
             </div>
           </div>
         </section>
@@ -543,28 +614,25 @@ export const FindingInvestigation: React.FC = () => {
               </span>
             </div>
             <h3 className="text-lg font-semibold text-[#dde2f7] tracking-tight">
-              14 / 14 critical incidents reached closure without a recorded Tier-3 supervisory escalation.
+              {gapCount} / {applicableCount} critical cases reached closure without recorded escalation evidence.
             </h3>
             <p className="text-xs text-[#c3c6d7] leading-relaxed">
-              SAT-SA identified the same structural workflow gap across all 14 evaluated incident dossiers. The pattern is consistent across the assessment scope and requires human supervisory review.
+              SAT-SA identified the same structural workflow gap across all {gapCount} evaluated operational cases. The pattern requires human supervisory review.
             </p>
           </div>
 
           {/* 3-Step Process Indicator Pill */}
           <div className="flex items-center gap-1.5 bg-[#080e1d] p-1.5 rounded border border-[#1E293B] shrink-0 font-mono text-[10px]">
-            {/* Step 1 */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#93000a]/40 border border-[#ef4444]/40 text-[#ffb4ab]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]"></span>
-              <span className="font-semibold">PATTERN DETECTED</span>
+              <span className="font-semibold">GAP IDENTIFIED</span>
             </div>
             <span className="text-[#8d90a0]">→</span>
-            {/* Step 2 */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#03b5d3]/20 border border-[#03b5d3]/40 text-[#4cd7f6]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-              <span className="font-semibold">EVIDENCE HASH VERIFIED</span>
+              <span className="font-semibold">EVIDENCE ANCHORED</span>
             </div>
             <span className="text-[#8d90a0]">→</span>
-            {/* Step 3 */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2563eb]/30 border border-[#2563eb] text-[#b4c5ff] shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-[#38BDF8] animate-pulse"></span>
               <span className="font-semibold">HUMAN REVIEW</span>
@@ -609,53 +677,59 @@ export const FindingInvestigation: React.FC = () => {
                   <Terminal className="w-3.5 h-3.5" />
                   GROUND TRUTH
                 </span>
-                <span className="font-mono text-[10px] text-[#8d90a0]">Ingested Telemetry Stream</span>
+                <span className="font-mono text-[10px] text-[#8d90a0]">Ingested Operational Dataset</span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-1">
                 <div className="p-2 bg-[#131B2E] rounded flex flex-col border border-[#1E293B]">
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Evaluated Dossiers</span>
-                  <span className="text-sm font-semibold font-mono text-[#dde2f7]">14 dossiers</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Evaluated Cases</span>
+                  <span className="text-sm font-semibold font-mono text-[#dde2f7]">{applicableCount} cases</span>
                 </div>
                 <div className="p-2 bg-[#131B2E] rounded flex flex-col border border-[#1E293B]">
                   <span className="font-mono text-[10px] text-[#8d90a0]">Escalations Logged</span>
-                  <span className="text-sm font-semibold font-mono text-[#ef4444]">0 records</span>
+                  <span className={`text-sm font-semibold font-mono ${observedCount > 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                    {observedCount} records
+                  </span>
                 </div>
                 <div className="p-2 bg-[#131B2E] rounded flex flex-col border border-[#1E293B]">
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Dispatch Tokens</span>
-                  <span className="text-sm font-semibold font-mono text-[#ef4444]">0 tokens</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Execution Gaps</span>
+                  <span className={`text-sm font-semibold font-mono ${gapCount > 0 ? 'text-[#ef4444]' : 'text-[#10b981]'}`}>
+                    {gapCount} cases
+                  </span>
                 </div>
                 <div className="p-2 bg-[#131B2E] rounded flex flex-col border border-[#1E293B]">
-                  <span className="font-mono text-[10px] text-[#8d90a0]">Supervisor Signoffs</span>
-                  <span className="text-sm font-semibold font-mono text-[#ef4444]">0 signoffs</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0]">Gap Rate</span>
+                  <span className={`text-sm font-semibold font-mono ${gapCount > 0 ? 'text-[#ef4444]' : 'text-[#10b981]'}`}>
+                    {gapRateFormatted}
+                  </span>
                 </div>
               </div>
 
               <ul className="text-xs text-[#c3c6d7] space-y-1 font-mono bg-[#131B2E]/60 p-2.5 rounded border border-[#1E293B]">
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-                  14 Tier-3 security event dossiers evaluated during Cycle 14.
+                  {applicableCount} critical operational cases evaluated under {finding.ruleCode}.
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]"></span>
-                  0 recorded Tier-3 escalation records or dispatch handshakes.
+                  <span className={`w-1.5 h-1.5 rounded-full ${observedCount > 0 ? 'bg-[#10b981]' : 'bg-[#ef4444]'}`}></span>
+                  {observedCount} recorded escalation events observed in operational records.
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]"></span>
-                  0 supervisor dispatch tokens or counter-sign packets in pipeline.
+                  <span className={`w-1.5 h-1.5 rounded-full ${gapCount > 0 ? 'bg-[#ef4444]' : 'bg-[#10b981]'}`}></span>
+                  {gapCount} critical operational cases missing mandatory escalation evidence before closure.
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
-                  Initial triage disposition immediately followed by case closure.
+                  Initial triage classification followed by direct closure without requisite escalation anchor.
                 </li>
               </ul>
 
               <div className="flex items-center gap-3 pt-1 font-mono text-[10px] text-[#8d90a0] flex-wrap">
-                <span>Primary Offset: <span className="text-[#dde2f7]">{finding.primaryOffset}</span></span>
+                <span>Rule Code: <span className="text-[#dde2f7]">{finding.ruleCode}</span></span>
                 <span>•</span>
                 <span>Target Protocol: <span className="text-[#dde2f7]">{finding.targetProtocol}</span></span>
                 <span>•</span>
-                <span>Sensor: <span className="text-[#dde2f7]">{finding.sensorSource}</span></span>
+                <span>Submission: <span className="text-[#dde2f7]">{finding.submissionId || 'Operational Ingest'}</span></span>
               </div>
             </div>
 
@@ -671,12 +745,12 @@ export const FindingInvestigation: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-[#dde2f7] leading-relaxed">
-                The evidence indicates a recurring workflow deviation rather than an isolated incident. The automated orchestration pipeline permitted direct case closure bypassing mandatory escalation protocols. This pattern across multiple shifts demonstrates an orchestration gap allowing high-severity alerts to be closed without required supervisory review.
+                The evidence indicates a recurring operational pattern. Critical cases reached closure bypassing mandatory escalation protocols. The deterministic engine flagged {gapCount} potential execution gaps for human supervisory determination.
               </p>
               <div className="p-2.5 bg-[#93000a]/20 rounded flex items-center gap-2 text-[#ffdad6] font-mono text-[11px] border border-[#ef4444]/30">
                 <FileCheck className="w-4 h-4 text-[#ef4444] shrink-0" />
                 <span>
-                  Recommended Supervisory Action: Corrective Action Plan Recommended under FinSec Operational Guidelines §12.
+                  Recommended Supervisory Action: Review evidence chain and render supervisory determination.
                 </span>
               </div>
             </div>
@@ -689,9 +763,9 @@ export const FindingInvestigation: React.FC = () => {
               </span>
               <div className="p-2 bg-[#131B2E] rounded flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono border border-[#1E293B]">
                 <span className="text-[#4cd7f6]">
-                  99.4% evidence consistency • 14 dossiers • 3 parquet volumes • Unsupported Claims: 0
+                  {finding.confidence}% evidence consistency • {applicableCount} dossiers evaluated • Unsupported Claims: 0
                 </span>
-                <span className="text-[#8d90a0]">41,208 records verified</span>
+                <span className="text-[#8d90a0]">{forensicRecords.length} records verified</span>
               </div>
             </div>
 
@@ -702,7 +776,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Deterministic Trigger: <code className="text-[#4cd7f6]">{finding.ruleCode}</code></span>
               </div>
               <div className="text-[#8d90a0]">
-                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> (84 Records Verified)
+                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> ({forensicRecords.length} Evidence Records)
               </div>
             </div>
           </section>
@@ -719,7 +793,7 @@ export const FindingInvestigation: React.FC = () => {
                     Traceability Chain
                   </h3>
                   <p className="text-[11px] text-[#8d90a0]">
-                    Signal-to-source provenance and verification link.
+                    Finding → Rule → Metric → Affected Case → sourceRecordId → SourceRecord → Raw Payload
                   </p>
                 </div>
               </div>
@@ -728,13 +802,13 @@ export const FindingInvestigation: React.FC = () => {
 
             {/* Vertical Linked Chain Graph (Nodes 1 to 6) */}
             <div className="flex flex-col gap-1.5 relative">
-              {/* Node 1 */}
+              {/* Node 1: Finding Identity */}
               <div className="p-2.5 bg-[#080e1d] rounded flex items-start gap-3 border border-[#1E293B]">
                 <div className="w-5 h-5 rounded-full bg-[#93000a]/50 text-[#ffb4ab] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   1
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">Finding Identity</span>
+                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">1. Finding Identity</span>
                   <span className="text-xs font-semibold text-[#dde2f7]">{finding.id}</span>
                   <span className="font-mono text-[10px] text-[#ef4444] truncate">{finding.title}</span>
                 </div>
@@ -745,16 +819,16 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="w-0.5 h-full bg-[#1E293B]"></div>
               </div>
 
-              {/* Node 2 */}
+              {/* Node 2: Evaluated Rule */}
               <div className="p-2.5 bg-[#080e1d] rounded flex items-start gap-3 border border-[#1E293B]">
                 <div className="w-5 h-5 rounded-full bg-[#1A243B] text-[#4cd7f6] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   2
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">Evaluated Control Rule</span>
+                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">2. Evaluated Control Rule</span>
                   <span className="text-xs font-semibold font-mono text-[#dde2f7]">{finding.ruleCode}</span>
                   <span className="font-mono text-[10px] text-[#8d90a0] truncate">
-                    Mandatory Tier-3 Escalation Protocols ({finding.targetProtocol})
+                    Mandatory Escalation Protocols ({finding.targetProtocol})
                   </span>
                 </div>
                 <FileCheck className="w-3.5 h-3.5 text-[#4cd7f6]" />
@@ -764,18 +838,18 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="w-0.5 h-full bg-[#1E293B]"></div>
               </div>
 
-              {/* Node 3 */}
+              {/* Node 3: Quantitative Metric */}
               <div className="p-2.5 bg-[#080e1d] rounded flex items-start gap-3 border border-[#1E293B]">
                 <div className="w-5 h-5 rounded-full bg-[#93000a]/50 text-[#ffb4ab] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   3
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">Quantitative Metric</span>
+                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">3. Quantitative Metric</span>
                   <span className="text-xs font-semibold text-[#ef4444] font-mono">
-                    Escalation Handshake Rate = {finding.handshakeRate}
+                    Execution Gap Rate = {gapRateFormatted}
                   </span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">
-                    Expected Benchmark: 100.0% // Status: FAILED
+                    Expected: 0.0% Gaps ({observedCount} / {applicableCount} Observed)
                   </span>
                 </div>
                 <AlertTriangle className="w-3.5 h-3.5 text-[#ef4444]" />
@@ -785,18 +859,20 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="w-0.5 h-full bg-[#1E293B]"></div>
               </div>
 
-              {/* Node 4 */}
+              {/* Node 4: Forensic Scope */}
               <div className="p-2.5 bg-[#080e1d] rounded flex items-start gap-3 border border-[#1E293B]">
                 <div className="w-5 h-5 rounded-full bg-[#1A243B] text-[#4cd7f6] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   4
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">Forensic Scope</span>
+                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">4. Affected Cases ({gapCount})</span>
                   <span className="text-xs font-semibold text-[#dde2f7]">
-                    {finding.flaggedIncidentsCount} Flagged Incident Dossiers
+                    {finding.affectedCaseIds && finding.affectedCaseIds.length > 0
+                      ? finding.affectedCaseIds.join(', ')
+                      : `${gapCount} Flagged Cases`}
                   </span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">
-                    Range: INC-8821 through INC-8834
+                    Linked to {finding.sourceRecordIds?.length || gapCount} Source Records
                   </span>
                 </div>
                 <Terminal className="w-3.5 h-3.5 text-[#4cd7f6]" />
@@ -806,18 +882,18 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="w-0.5 h-full bg-[#1E293B]"></div>
               </div>
 
-              {/* Node 5 */}
+              {/* Node 5: Source Ingestion Anchor */}
               <div className="p-2.5 bg-[#080e1d] rounded flex items-start gap-3 border border-[#1E293B]">
                 <div className="w-5 h-5 rounded-full bg-[#1A243B] text-[#4cd7f6] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   5
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">Source Telemetry Ingest</span>
+                  <span className="font-mono text-[9px] text-[#8d90a0] uppercase">5. Operational Submission Ingest</span>
                   <span className="text-xs font-semibold font-mono text-[#dde2f7] truncate">
-                    {finding.telemetryFile}
+                    {finding.telemetryFile || 'Operational Ingest Batch'}
                   </span>
-                  <span className="font-mono text-[10px] text-[#8d90a0]">
-                    {finding.telemetryOffset}
+                  <span className="font-mono text-[10px] text-[#8d90a0] truncate">
+                    Submission ID: {finding.submissionId || 'Operational Ingest'}
                   </span>
                 </div>
                 <Download className="w-3.5 h-3.5 text-[#4cd7f6]" />
@@ -835,17 +911,17 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="flex flex-col flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] text-[#4cd7f6] uppercase font-semibold">
-                      Evidence Integrity Verification
+                      6. Evidence Integrity Fingerprint
                     </span>
                     <span className="px-1.5 py-0.2 rounded bg-[#4cd7f6]/10 text-[#4cd7f6] font-mono text-[9px] border border-[#4cd7f6]/30">
                       VERIFIED
                     </span>
                   </div>
-                  <span className="font-mono text-[10px] text-[#dde2f7] truncate mt-0.5">
-                    SHA-256 Hash Verified: {finding.sha256Hash}
+                  <span className="font-mono text-[10px] text-[#dde2f7] truncate mt-0.5" title={finding.sourceIntegrityFingerprint || finding.sha256Hash}>
+                    SHA-256: {finding.sourceIntegrityFingerprint || finding.sha256Hash || 'Verified'}
                   </span>
                   <span className="font-mono text-[9px] text-[#8d90a0]">
-                    Verification Timestamp: {finding.evidenceTimestamp}
+                    Evidence Timestamp: {finding.evidenceTimestamp || finding.lastUpdated}
                   </span>
                 </div>
               </div>
@@ -853,20 +929,19 @@ export const FindingInvestigation: React.FC = () => {
           </section>
         </div>
 
-        {/* LEVEL 4b: FORENSIC SOURCE RECORDS EXPLORER (Raw Telemetry Drawer) */}
+        {/* LEVEL 4.5: FORENSIC SOURCE RECORDS EXPLORER (Interactive Table with Real Payloads) */}
         <section className="bg-[#151b2b] rounded p-4 sm:p-5 flex flex-col gap-4 border border-[#1E293B]">
-          {/* Toolbar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-[#1E293B]">
             <div className="flex items-center gap-2.5">
               <div className="p-1.5 rounded bg-[#1A243B] text-[#4cd7f6]">
                 <Terminal className="w-4 h-4" />
               </div>
               <div>
                 <h3 className="text-base font-semibold text-[#dde2f7] tracking-tight">
-                  Forensic Source Records Explorer
+                  Forensic Evidence & Source Records Explorer
                 </h3>
                 <p className="text-xs text-[#8d90a0]">
-                  Raw Parquet event records ingested from {finding.sensorSource} during Cycle 14 window.
+                  Explicit evidence records associated with finding {finding.id} from {finding.entityName}.
                 </p>
               </div>
             </div>
@@ -882,153 +957,165 @@ export const FindingInvestigation: React.FC = () => {
                 />
               </div>
               <button
-                onClick={() => showToast('Initiated secure Parquet volume download (18.4 MB)')}
+                onClick={() => showToast(`Exported ${filteredRecords.length} evidence records`)}
                 className="px-3 py-1 bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] rounded transition-colors flex items-center gap-1.5 border border-[#1E293B]"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Export Parquet</span>
+                <span>Export Evidence</span>
               </button>
               <span className="px-2.5 py-1 bg-[#1A243B] text-[#4cd7f6] rounded font-mono text-[10px] font-semibold border border-[#1E293B]">
-                {filteredRecords.length} Verified Records
+                {filteredRecords.length} Verified Evidence Records
               </span>
             </div>
           </div>
 
-          {/* Data Table with Expandable Payloads */}
-          <div className="overflow-x-auto bg-[#080e1d] rounded border border-[#1E293B]">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-[#131B2E] text-[#8d90a0] text-[10px] uppercase tracking-wider border-b border-[#1E293B]">
-                <tr>
-                  <th className="px-4 py-2.5">Case Identifier</th>
-                  <th className="px-4 py-2.5">Alert Timestamp</th>
-                  <th className="px-4 py-2.5">Triage Complete</th>
-                  <th className="px-4 py-2.5 text-[#ef4444]">Recorded Escalation</th>
-                  <th className="px-4 py-2.5">Closure Timestamp</th>
-                  <th className="px-4 py-2.5">Disposition Given</th>
-                  <th className="px-4 py-2.5">Provenance Hash</th>
-                  <th className="px-4 py-2.5 text-right">Audit Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1E293B]/60">
-                {filteredRecords.map((record) => {
-                  const isExpanded = expandedRow === record.incidentId;
-                  return (
-                    <React.Fragment key={record.incidentId}>
-                      <tr
-                        onClick={() => setExpandedRow(isExpanded ? '' : record.incidentId)}
-                        className={`cursor-pointer transition-colors ${
-                          isExpanded ? 'bg-[#131B2E]/90' : 'hover:bg-[#131B2E]/50'
-                        }`}
-                      >
-                        <td className="px-4 py-2.5 font-semibold text-[#4cd7f6] flex items-center gap-1.5">
-                          {isExpanded ? (
-                            <ChevronUp className="w-3.5 h-3.5 text-[#4cd7f6]" />
-                          ) : (
-                            <ChevronDown className="w-3.5 h-3.5 text-[#8d90a0]" />
-                          )}
-                          <span>{record.incidentId}</span>
-                        </td>
-                        <td className="px-4 py-2.5 text-[#c3c6d7]">{record.alertTimestamp}</td>
-                        <td className="px-4 py-2.5 text-[#c3c6d7]">{record.triageComplete}</td>
-                        <td className="px-4 py-2.5 text-[#ef4444] font-semibold flex items-center gap-1">
-                          <XCircle className="w-3 h-3 text-[#ef4444]" />
-                          <span>{record.recordedEscalation}</span>
-                        </td>
-                        <td className="px-4 py-2.5 text-[#c3c6d7]">{record.closureTimestamp}</td>
-                        <td className="px-4 py-2.5">
-                          <span className="px-2 py-0.5 rounded bg-[#1A243B] text-[#c3c6d7] text-[10px] border border-[#1E293B]">
-                            {record.dispositionGiven}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-[#8d90a0] truncate max-w-[120px]">
-                          {record.provenanceHash}
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] ${
-                              record.auditActionStatus === 'Inspected'
-                                ? 'bg-[#151b2b] text-[#4cd7f6] border border-[#4cd7f6]/30'
-                                : 'bg-[#151b2b] text-[#8d90a0] border border-[#1E293B]'
-                            }`}
-                          >
-                            {record.auditActionStatus}
-                          </span>
-                        </td>
-                      </tr>
+          {/* Evidence Data Table */}
+          {filteredRecords.length === 0 ? (
+            <div className="p-8 text-center bg-[#080e1d] rounded border border-[#1E293B] text-xs font-mono text-[#8d90a0]">
+              No evidence records found matching the active filter.
+            </div>
+          ) : (
+            <div className="overflow-x-auto bg-[#080e1d] rounded border border-[#1E293B]">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-[#131B2E] text-[#8d90a0] text-[10px] uppercase tracking-wider border-b border-[#1E293B]">
+                  <tr>
+                    <th className="px-4 py-2.5">Case Identifier</th>
+                    <th className="px-4 py-2.5">Alert Timestamp</th>
+                    <th className="px-4 py-2.5">Triage Complete</th>
+                    <th className="px-4 py-2.5 text-[#ef4444]">Recorded Escalation</th>
+                    <th className="px-4 py-2.5">Closure Timestamp</th>
+                    <th className="px-4 py-2.5">Disposition Given</th>
+                    <th className="px-4 py-2.5">Data Quality</th>
+                    <th className="px-4 py-2.5 text-right">Source Record</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1E293B]/60">
+                  {filteredRecords.map((record) => {
+                    const isExpanded = expandedRow === record.incidentId;
+                    const sourceRec = sourceRecordsMap.get(record.sourceRecordId || record.incidentId);
 
-                      {/* Expandable JSON Telemetry Payload Snapshot */}
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={8} className="p-0">
-                            <div className="bg-[#080e1d] p-4 flex flex-col gap-2.5 border-l-2 border-[#4cd7f6] border-b border-[#1E293B]">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-[#4cd7f6] font-semibold uppercase tracking-wider flex items-center gap-2">
-                                  <Terminal className="w-3.5 h-3.5" />
-                                  Raw Telemetry Payload Snapshot: {record.incidentId} (Parquet Partition 20250325-01)
-                                </span>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-[#8d90a0] text-[11px]">
-                                    Offset: 41,206 // ByteLength: 1,842
-                                  </span>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCopyJson(record);
-                                    }}
-                                    className="px-2.5 py-0.5 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#4cd7f6] text-[11px] flex items-center gap-1 border border-[#1E293B] transition-colors"
-                                  >
-                                    {copiedId === record.incidentId ? (
-                                      <>
-                                        <Check className="w-3 h-3 text-[#10b981]" />
-                                        <span className="text-[#10b981]">Copied</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy className="w-3 h-3" />
-                                        <span>Copy JSON</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Structured Syntax Highlighted Code Viewer */}
-                              <div className="p-3.5 bg-[#090D16] rounded font-mono text-[11px] text-[#dde2f7] overflow-x-auto leading-relaxed border border-[#1E293B]">
-                                <pre className="m-0">
-                                  <code>
-{`{
-  `}<span className="text-[#8d90a0]">"incident_id"</span>{`: `}<span className="text-[#4cd7f6]">"${record.rawPayload.incident_id}"</span>{`,
-  `}<span className="text-[#8d90a0]">"entity_urn"</span>{`: `}<span className="text-[#4cd7f6]">"${record.rawPayload.entity_urn}"</span>{`,
-  `}<span className="text-[#8d90a0]">"classification"</span>{`: `}<span className="text-[#ef4444]">"${record.rawPayload.classification}"</span>{`,
-  `}<span className="text-[#8d90a0]">"initial_triage"</span>{`: {
-    `}<span className="text-[#8d90a0]">"operator_id"</span>{`: `}<span className="text-[#dde2f7]">"${record.rawPayload.initial_triage.operator_id}"</span>{`,
-    `}<span className="text-[#8d90a0]">"timestamp"</span>{`: `}<span className="text-[#acedff]">"${record.rawPayload.initial_triage.timestamp}"</span>{`,
-    `}<span className="text-[#8d90a0]">"threat_vector"</span>{`: `}<span className="text-[#dde2f7]">"${record.rawPayload.initial_triage.threat_vector}"</span>{`
-  },
-  `}<span className="text-[#8d90a0]">"escalation_event_recorded"</span>{`: `}<span className="text-[#ef4444] font-bold">null</span>{`,
-  `}<span className="text-[#8d90a0]">"escalation_handshake_tokens"</span>{`: `}<span className="text-[#ef4444] font-bold">[]</span>{`,
-  `}<span className="text-[#8d90a0]">"supervisor_review_signoff"</span>{`: `}<span className="text-[#ef4444] font-bold">false</span>{`,
-  `}<span className="text-[#8d90a0]">"closure_event"</span>{`: {
-    `}<span className="text-[#8d90a0]">"disposition"</span>{`: `}<span className="text-[#dde2f7]">"${record.rawPayload.closure_event.disposition}"</span>{`,
-    `}<span className="text-[#8d90a0]">"timestamp"</span>{`: `}<span className="text-[#acedff]">"${record.rawPayload.closure_event.timestamp}"</span>{`,
-    `}<span className="text-[#8d90a0]">"elapsed_seconds"</span>{`: `}<span className="text-[#dde2f7]">${record.rawPayload.closure_event.elapsed_seconds}</span>{`
-  },
-  `}<span className="text-[#8d90a0]">"audit_violation_flag"</span>{`: `}<span className="text-[#ef4444] font-bold">true</span>{`,
-  `}<span className="text-[#8d90a0]">"rule_violated"</span>{`: `}<span className="text-[#ef4444]">"${record.rawPayload.rule_violated}"</span>{`
-}`}
-                                  </code>
-                                </pre>
-                              </div>
-                            </div>
+                    return (
+                      <React.Fragment key={record.incidentId}>
+                        <tr
+                          onClick={() => setExpandedRow(isExpanded ? '' : record.incidentId)}
+                          className={`cursor-pointer transition-colors ${
+                            isExpanded ? 'bg-[#131B2E]/90' : 'hover:bg-[#131B2E]/50'
+                          }`}
+                        >
+                          <td className="px-4 py-2.5 font-semibold text-[#4cd7f6] flex items-center gap-1.5">
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-[#8d90a0]" />
+                            )}
+                            <span>{record.incidentId}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-[#c3c6d7]">{record.alertTimestamp}</td>
+                          <td className="px-4 py-2.5 text-[#c3c6d7]">{record.triageComplete}</td>
+                          <td className="px-4 py-2.5 text-[#ef4444] font-semibold flex items-center gap-1">
+                            <XCircle className="w-3 h-3 text-[#ef4444]" />
+                            <span>{record.recordedEscalation}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-[#c3c6d7]">{record.closureTimestamp}</td>
+                          <td className="px-4 py-2.5">
+                            <span className="px-2 py-0.5 rounded bg-[#1A243B] text-[#c3c6d7] text-[10px] border border-[#1E293B]">
+                              {record.dispositionGiven}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {record.dataQualityStatus === 'DATA_QUALITY_LIMITED' ? (
+                              <span className="px-2 py-0.5 rounded bg-[#f59e0b]/20 text-[#f59e0b] text-[10px] border border-[#f59e0b]/40">
+                                LIMITED
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-[#10b981]/20 text-[#10b981] text-[10px] border border-[#10b981]/40">
+                                SUFFICIENT
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                            {sourceRec ? (
+                              <button
+                                onClick={() => setInspectingSourceRecord(sourceRec)}
+                                className="px-2.5 py-1 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#4cd7f6] hover:text-[#acedff] text-[10px] font-mono border border-[#38BDF8]/40 transition-colors flex items-center gap-1 ml-auto"
+                              >
+                                <Database className="w-3 h-3" />
+                                <span>Inspect Source</span>
+                              </button>
+                            ) : (
+                              <span className="text-[#8d90a0] text-[10px]">
+                                {record.provenanceHash.substring(0, 10)}...
+                              </span>
+                            )}
                           </td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+                        {/* Expandable Raw Telemetry / Operational Payload Snapshot */}
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={8} className="p-0">
+                              <div className="bg-[#080e1d] p-4 flex flex-col gap-2.5 border-l-2 border-[#4cd7f6] border-b border-[#1E293B]">
+                                <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                                  <span className="text-[#4cd7f6] font-semibold uppercase tracking-wider flex items-center gap-2">
+                                    <Terminal className="w-3.5 h-3.5" />
+                                    Preserved Operational Record Payload: {record.incidentId}
+                                  </span>
+                                  <div className="flex items-center gap-3">
+                                    {record.sourceRecordId && (
+                                      <span className="text-[#8d90a0] text-[11px] font-mono">
+                                        Source ID: <code className="text-[#4cd7f6]">{record.sourceRecordId}</code>
+                                      </span>
+                                    )}
+                                    {sourceRec && (
+                                      <button
+                                        onClick={() => setInspectingSourceRecord(sourceRec)}
+                                        className="px-2.5 py-0.5 rounded bg-[#1A243B] hover:bg-[#24324f] text-[#38BDF8] text-[11px] flex items-center gap-1 border border-[#38BDF8]/40 transition-colors"
+                                      >
+                                        <FileCode className="w-3 h-3" />
+                                        <span>Full Source Ingest View</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleCopyJson(record.rawPayload, record.incidentId)}
+                                      className="px-2.5 py-0.5 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#4cd7f6] text-[11px] flex items-center gap-1 border border-[#1E293B] transition-colors"
+                                    >
+                                      {copiedId === record.incidentId ? (
+                                        <>
+                                          <Check className="w-3 h-3 text-[#10b981]" />
+                                          <span className="text-[#10b981]">Copied</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="w-3 h-3" />
+                                          <span>Copy JSON</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Structured Safe Syntax Highlighted Code Viewer */}
+                                <div className="p-3.5 bg-[#090D16] rounded font-mono text-[11px] text-[#dde2f7] overflow-x-auto leading-relaxed border border-[#1E293B]">
+                                  <pre className="m-0 text-[#dde2f7]">
+                                    <code>{JSON.stringify(record.rawPayload, null, 2)}</code>
+                                  </pre>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] font-mono text-[#8d90a0] pt-1">
+                                  <span>Provenance Hash: <code className="text-[#4cd7f6]">{record.provenanceHash}</code></span>
+                                  <span>Audit Action Status: <span className="text-[#10b981] font-semibold">{record.auditActionStatus}</span></span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         {/* LEVEL 5: HUMAN SUPERVISOR DECISION PANEL (Supervisory Determination) */}
@@ -1150,8 +1237,8 @@ export const FindingInvestigation: React.FC = () => {
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-2 border-t border-[#1E293B] font-mono text-[10px] text-[#8d90a0] gap-2">
                 <span>Supervisor: {finding.inspector} (Lead Supervisory Inspector)</span>
-                <span>Subsequent Supervisory Review: {confirmationRecord.timestamp}</span>
-                <span>Local Verification Hash: <code className="text-[#4cd7f6]">{confirmationRecord.commitHash}</code></span>
+                <span>Supervisory Review Time: {confirmationRecord.timestamp}</span>
+                <span>Verification Hash: <code className="text-[#4cd7f6]">{confirmationRecord.commitHash}</code></span>
               </div>
 
               {/* Action Controls for Recorded State */}
@@ -1198,19 +1285,19 @@ export const FindingInvestigation: React.FC = () => {
                         className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
                       />
                       <span className="text-sm font-semibold text-[#ef4444]">
-                        Uphold Critical Defect
+                        Uphold Finding (Defect Affirmed)
                       </span>
                     </div>
-                    <span className="px-1.5 py-0.5 rounded bg-[#93000a]/50 text-[#ffdad6] text-[9px] font-mono font-semibold">
+                    <span className="px-2 py-0.5 rounded bg-[#ef4444]/20 text-[#ef4444] font-mono text-[10px] font-semibold border border-[#ef4444]/30">
                       RECOMMENDED
                     </span>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Confirm Critical Defect & Recommend Corrective Action Plan. Affirms systemic breach of RULE-ESC-04 across 14 high-severity events.
+                    Affirms the finding as a formal regulatory defect. Operational records confirm critical alerts reached closure without requisite escalation evidence.
                   </p>
-                  <div className="mt-auto pt-2 font-mono text-[10px] text-[#ef4444] flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Corrective Action Plan Recommended</span>
+                  <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
+                    <FileCheck className="w-3 h-3" />
+                    <span>Corrective Action Plan (CAP) Required</span>
                   </div>
                 </label>
 
@@ -1238,7 +1325,7 @@ export const FindingInvestigation: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Classifies event as an uncalibrated telemetry ingest delay rather than an operational failure. Requires supplementary logs from Apex within 48 hours.
+                    Classifies event as an uncalibrated telemetry ingest issue rather than a structural operational failure. Requires supplementary records within 48 hours.
                   </p>
                   <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
                     <Clock className="w-3 h-3" />
@@ -1270,11 +1357,11 @@ export const FindingInvestigation: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Accepts entity assertion of an authorized operational waiver or valid out-of-band supervisory phone dispatch log not captured in SIEM data.
+                    Accepts entity assertion of an authorized operational waiver or valid out-of-band supervisory phone dispatch log not captured in operational data.
                   </p>
                   <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
                     <XCircle className="w-3 h-3" />
-                    <span>Requires Review Note</span>
+                    <span>Requires Supervisory Review Note</span>
                   </div>
                 </label>
               </div>
@@ -1325,12 +1412,12 @@ export const FindingInvestigation: React.FC = () => {
 
                   <button
                     onClick={() =>
-                      showToast('Formal request for supplementary telemetry dispatched to CSE-FIN-08')
+                      showToast(`Formal request for supplementary records dispatched to ${finding.entityCode}`)
                     }
                     className="px-3 py-2 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Request Additional Records from CSE-FIN-08</span>
+                    <span>Request Additional Records from {finding.entityCode}</span>
                   </button>
 
                   <button
@@ -1338,7 +1425,7 @@ export const FindingInvestigation: React.FC = () => {
                     className="px-4 py-2 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-[11px] font-semibold transition-colors flex items-center gap-2 shadow-md"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>CONFIRM SUPERVISORY DECISION</span>
+                    <span>CONFIRM SUPERVISOR DECISION</span>
                   </button>
                 </div>
               </div>
@@ -1363,6 +1450,140 @@ export const FindingInvestigation: React.FC = () => {
         </section>
 
       </div>
+
+      {/* MODAL: INSPECT PRESERVED SOURCE RECORD (Step 3 Requirement) */}
+      {inspectingSourceRecord && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e172a] border border-[#38BDF8]/40 rounded-lg max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="p-4 bg-[#131B2E] border-b border-[#1E293B] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded bg-[#38BDF8]/15 text-[#38BDF8]">
+                  <Database className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#dde2f7] flex items-center gap-2">
+                    <span>Preserved Operational Source Record</span>
+                    <span className="text-[#38BDF8] font-mono">{inspectingSourceRecord.caseId}</span>
+                  </h3>
+                  <p className="text-[11px] font-mono text-[#8d90a0]">
+                    Raw Immutable Source Ingest // Traceability Anchor
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectingSourceRecord(null)}
+                className="p-1 rounded text-[#8d90a0] hover:text-[#dde2f7] hover:bg-[#1E293B] transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto space-y-4 font-mono text-xs text-[#dde2f7]">
+              {/* Key Provenance Metadata Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-[#080e1d] p-3 rounded border border-[#1E293B]">
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Source Record ID</span>
+                  <span className="text-[#4cd7f6] font-semibold truncate block" title={inspectingSourceRecord.id}>
+                    {inspectingSourceRecord.id}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Submission ID</span>
+                  <span className="text-[#dde2f7] truncate block" title={inspectingSourceRecord.submissionId}>
+                    {inspectingSourceRecord.submissionId}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Entity ID</span>
+                  <span className="text-[#dde2f7] block">{inspectingSourceRecord.entityId}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Batch Ingest Row</span>
+                  <span className="text-[#dde2f7] block">Row #{inspectingSourceRecord.rowNumber}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Severity</span>
+                  <span className="text-[#ef4444] font-bold block">{inspectingSourceRecord.severity}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Ingestion Time</span>
+                  <span className="text-[#dde2f7] truncate block" title={inspectingSourceRecord.ingestedAt}>
+                    {new Date(inspectingSourceRecord.ingestedAt).toLocaleString()}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">SHA-256 Digest</span>
+                  <span className="text-[#38BDF8] text-[11px] truncate block font-mono" title={inspectingSourceRecord.sha256Digest}>
+                    {inspectingSourceRecord.sha256Digest}
+                  </span>
+                </div>
+              </div>
+
+              {/* Timestamps & Evidence Status */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-[#080e1d] p-3 rounded border border-[#1E293B]">
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Alert Timestamp</span>
+                  <span className="text-[#dde2f7] block">{inspectingSourceRecord.alertTimestamp}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Triage Timestamp</span>
+                  <span className="text-[#dde2f7] block">{inspectingSourceRecord.triageTimestamp || 'None'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Escalation Evidence</span>
+                  <span className={`font-bold block ${inspectingSourceRecord.escalationTimestamp ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                    {inspectingSourceRecord.escalationTimestamp || 'NO RECORD FOUND'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#8d90a0] uppercase block">Closure Timestamp</span>
+                  <span className="text-[#dde2f7] block">{inspectingSourceRecord.closureTimestamp || 'Open'}</span>
+                </div>
+              </div>
+
+              {/* Verbatim Preserved Payload */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase text-[#8d90a0] flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                    Preserved Original Raw Payload (Exact un-altered input from submission)
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify(inspectingSourceRecord.rawRecord, null, 2));
+                      showToast(`Copied source record ${inspectingSourceRecord.caseId} payload to clipboard`);
+                    }}
+                    className="px-2 py-0.5 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#4cd7f6] text-[10px] flex items-center gap-1 border border-[#1E293B] transition-colors"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy Raw JSON</span>
+                  </button>
+                </div>
+                <div className="p-3 bg-[#080e1d] rounded border border-[#1E293B] overflow-x-auto max-h-60 text-[11px] leading-relaxed">
+                  <pre className="text-[#4cd7f6]">
+                    <code>{JSON.stringify(inspectingSourceRecord.rawRecord, null, 2)}</code>
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-[#131B2E] border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+              <span className="text-[#8d90a0] text-[11px]">
+                Anchored into Finding Traceability Chain • Immutable Record
+              </span>
+              <button
+                onClick={() => setInspectingSourceRecord(null)}
+                className="px-3 py-1.5 rounded bg-[#1A243B] hover:bg-[#24324f] text-[#dde2f7] text-xs transition-colors"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -2,13 +2,10 @@ import React from 'react';
 import {
   FileCheck2,
   Calendar,
-  ShieldCheck,
-  ArrowRight,
-  Clock,
-  CheckCircle2,
-  AlertCircle
+  ArrowRight
 } from 'lucide-react';
 import { mockAssessments } from '../data/mockData';
+import { SubmissionIngestionPanel } from '../components/assessments/SubmissionIngestionPanel';
 
 export const Assessments: React.FC = () => {
   return (
@@ -21,10 +18,10 @@ export const Assessments: React.FC = () => {
             SUPERVISORY ASSESSMENT CYCLES // AUDIT PERIODS
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold text-[#dde2f7] tracking-tight">
-            Assessment Cycles
+            Assessment Cycles & Ingestion
           </h1>
           <p className="text-xs text-[#8d90a0] mt-0.5">
-            Periodic supervisory evaluation intervals, cryptographic submission windows, and statutory audit scopes.
+            Periodic supervisory evaluation intervals, cryptographic submission windows, and structured operational record ingestion.
           </p>
         </div>
 
@@ -35,8 +32,19 @@ export const Assessments: React.FC = () => {
         </div>
       </div>
 
+      {/* Local Submission Ingestion Engine (Step 1 Foundation) */}
+      <SubmissionIngestionPanel />
+
       {/* Cycle Cards */}
-      <div className="space-y-4">
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between pb-1">
+          <h2 className="text-sm sm:text-base font-semibold text-[#dde2f7]">
+            Supervisory Evaluation Windows
+          </h2>
+          <span className="text-xs font-mono text-[#8d90a0]">
+            Statutory Assessment Intervals
+          </span>
+        </div>
         {mockAssessments.map((cycle) => (
           <div
             key={cycle.id}

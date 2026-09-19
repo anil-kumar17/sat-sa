@@ -6,9 +6,18 @@ export class IndexedDBFindingsRepository implements IFindingRepository {
   async getAll(): Promise<Finding[]> {
     try {
       const db = await getSATDatabase();
-      if (!db) return Array.from(inMemoryFallback.findings.values());
+      if (!db) {
+        const inMem = Array.from(inMemoryFallback.findings.values());
+        if (inMem.length === 0) return mockFindings;
+        const inMemIds = new Set(inMem.map(r => r.id));
+        const unshadowed = mockFindings.filter(m => !inMemIds.has(m.id));
+        return [...inMem, ...unshadowed];
+      }
       const records = await db.getAll('findings');
-      return records.length > 0 ? records : mockFindings;
+      if (records.length === 0) return mockFindings;
+      const recordIds = new Set(records.map(r => r.id));
+      const unshadowedMocks = mockFindings.filter(m => !recordIds.has(m.id));
+      return [...records, ...unshadowedMocks];
     } catch {
       return Array.from(inMemoryFallback.findings.values());
     }
@@ -19,10 +28,40 @@ export class IndexedDBFindingsRepository implements IFindingRepository {
       const db = await getSATDatabase();
       if (!db) return inMemoryFallback.findings.get(id) || mockFindings.find(f => f.id === id);
       const record = await db.get('findings', id);
-      return record || mockFindings.find(f => f.id === id);
+      return record || inMemoryFallback.findings.get(id) || mockFindings.find(f => f.id === id);
     } catch {
       return inMemoryFallback.findings.get(id) || mockFindings.find(f => f.id === id);
     }
+  }
+
+  async save(finding: Finding): Promise<Finding> {
+    try {
+      const db = await getSATDatabase();
+      if (!db) {
+        inMemoryFallback.findings.set(finding.id, finding);
+        return finding;
+      }
+      await db.put('findings', finding);
+      inMemoryFallback.findings.set(finding.id, finding);
+      return finding;
+    } catch {
+      inMemoryFallback.findings.set(finding.id, finding);
+      return finding;
+    }
+  }
+
+  async getBySubmissionId(submissionId: string): Promise<Finding[]> {
+    const all = await this.getAll();
+    return all.filter(f => f.submissionId === submissionId || f.provenance?.submissionId === submissionId);
+  }
+
+  async getByRuleAndSubmission(ruleCode: string, submissionId: string): Promise<Finding | undefined> {
+    const all = await this.getAll();
+    return all.find(
+      f =>
+        f.ruleCode === ruleCode &&
+        (f.submissionId === submissionId || f.provenance?.submissionId === submissionId)
+    );
   }
 
   async updateStatus(id: string, status: FindingStatus): Promise<Finding> {
@@ -46,6 +85,18 @@ export class IndexedDBFindingsRepository implements IFindingRepository {
     } catch {
       inMemoryFallback.findings.set(id, updated);
       return updated;
+    }
+  }
+
+  async delete(id: string): Promise<void> {
+    try {
+      const db = await getSATDatabase();
+      if (db) {
+        await db.delete('findings', id);
+      }
+      inMemoryFallback.findings.delete(id);
+    } catch {
+      inMemoryFallback.findings.delete(id);
     }
   }
 
