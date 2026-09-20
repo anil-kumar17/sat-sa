@@ -72,7 +72,7 @@ export const FindingInvestigation: React.FC = () => {
   const [confirmationRecord, setConfirmationRecord] = useState<{
     decision: string;
     timestamp: string;
-    commitHash: string;
+    verificationReference: string;
   } | null>(null);
 
   // Toast notifications
@@ -81,6 +81,36 @@ export const FindingInvestigation: React.FC = () => {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const getRawPayloadValue = (
+    sourceRecord: SourceRecord | undefined,
+    keys: string[]
+  ): string | undefined => {
+    if (!sourceRecord?.rawPayload) return undefined;
+
+    for (const key of keys) {
+      const value = sourceRecord.rawPayload[key];
+      if (typeof value === 'string' && value.trim() !== '') {
+        return value;
+      }
+    }
+
+    return undefined;
+  };
+
+  const getDisplayClosureTimestamp = (
+    record: ForensicRecord,
+    sourceRecord?: SourceRecord
+  ): string => {
+    if (record.closureTimestamp && record.closureTimestamp !== 'Not recorded') {
+      return record.closureTimestamp;
+    }
+
+    return (
+      getRawPayloadValue(sourceRecord, ['closure_timestamp', 'closureTimestamp']) ||
+      'Not recorded'
+    );
   };
 
   // Load finding, decision, explicit evidence, and source records
@@ -93,10 +123,12 @@ export const FindingInvestigation: React.FC = () => {
       }
       setFinding(currentFinding);
 
-      // Default rationale based on current finding
-      const defaultRationale = currentFinding.summary
-        ? `Affirmed as Critical Defect (${currentFinding.defectCode || 'P0'}). Ingested records confirm that ${currentFinding.flaggedIncidentsCount} critical alerts closed without requisite supervisory escalation under ${currentFinding.ruleCode} (${currentFinding.targetProtocol || 'Mandatory Escalation Protocol'}). Human supervisory review affirms corrective action plan.`
-        : 'Affirmed as Critical Defect (P0). Ingested telemetry confirms critical alerts closed without requisite supervisory handshake, directly contravening Mandatory Escalation Protocols.';
+      // Start with a neutral review note; the supervisor records the determination.
+      const defaultRationale =
+        `Review of ${currentFinding.gapCount ?? currentFinding.flaggedIncidentsCount} potential execution gap(s) across ` +
+        `${currentFinding.applicableCaseCount ?? currentFinding.totalEvaluatedIncidents} applicable case(s) under ${currentFinding.ruleCode}. ` +
+        `Submitted records show missing escalation evidence for the affected cases. ` +
+        `Supervisor review is required to determine whether the finding should be upheld, downgraded, or dismissed.`;
       setDecisionRationale(defaultRationale);
 
       // 2. Fetch specific evidence by ID list - STRICT PROVENANCE: NEVER CALL evidenceRepository.getAll()!
@@ -141,7 +173,7 @@ export const FindingInvestigation: React.FC = () => {
         setConfirmationRecord({
           decision: existingDecision.decisionTitle,
           timestamp: existingDecision.decidedAt,
-          commitHash: existingDecision.sha256Verification
+          verificationReference: existingDecision.sha256Verification
         });
       } else {
         setIsDecisionConfirmed(false);
@@ -159,6 +191,10 @@ export const FindingInvestigation: React.FC = () => {
   const gapRateFormatted = finding.gapRate !== undefined
     ? `${finding.gapRate.toFixed(1)}%`
     : finding.handshakeRate;
+  const evidenceRecordCount = forensicRecords.length;
+  const evidenceCoverageRate = gapCount > 0
+    ? Math.min(100, Math.round((evidenceRecordCount / gapCount) * 100))
+    : 100;
 
   // Determine current synchronization status for this finding
   const queuedAction = pendingActions.find((a) => a.findingId === finding.id);
@@ -177,11 +213,8 @@ export const FindingInvestigation: React.FC = () => {
 
   const handleConfirmDecision = async () => {
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-    const commitHash =
-      '0x' +
-      Math.random().toString(16).substring(2, 10) +
-      Math.random().toString(16).substring(2, 10) +
-      '...';
+    const verificationReference =
+      finding.sourceIntegrityFingerprint || finding.sha256Hash || 'Not available';
 
     try {
       await enqueueSupervisorDecision(
@@ -199,7 +232,7 @@ export const FindingInvestigation: React.FC = () => {
           actionType: 'SUPERVISOR_DECISION_RECORDED',
           targetEntity: finding.entityCode,
           targetRef: finding.id,
-          provenanceHash: finding.sha256Hash || finding.sourceIntegrityFingerprint || 'SHA-256 Verified',
+          provenanceHash: finding.sha256Hash || finding.sourceIntegrityFingerprint || 'Not available',
           integrityStatus: 'VALIDATED',
           summary: `Supervisor ${finding.inspector} recorded decision '${selectedDecision}' on finding ${finding.id}.`
         });
@@ -210,12 +243,12 @@ export const FindingInvestigation: React.FC = () => {
       setConfirmationRecord({
         decision:
           selectedDecision === 'UPHOLD'
-            ? 'Affirmed Critical Defect (P0) — Corrective Action Plan Recommended'
+            ? 'Finding upheld — supervisory review recorded'
             : selectedDecision === 'DOWNGRADE'
-            ? 'Downgraded to Observation — Telemetry Recalibration Window'
-            : 'Finding Dismissed — Supervisory Waiver Recorded',
+            ? 'Finding downgraded to observation — supervisory review recorded'
+            : 'Finding dismissed — supervisory review recorded',
         timestamp,
-        commitHash
+        verificationReference
       });
 
       setIsDecisionConfirmed(true);
@@ -312,13 +345,13 @@ export const FindingInvestigation: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded bg-[#93000a] text-[#ffdad6] font-mono text-[11px] font-semibold tracking-wider flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3 text-[#ffb4ab]" />
-                CRITICAL DEFECT // {finding.defectCode || 'P0'}
+                POTENTIAL CONTROL DEVIATION
               </span>
               <span className="font-mono text-[11px] text-[#03b5d3] font-semibold tracking-wider">
-                {finding.ruleCode} BREACH
+                RULE {finding.ruleCode}
               </span>
               <span className="px-2 py-0.5 rounded bg-[#191f2f] text-[#8d90a0] font-mono text-[10px]">
-                NIST-800-61R2
+                SUPERVISORY RULE
               </span>
               <span className="px-2 py-0.5 rounded bg-[#191f2f] text-[#8d90a0] font-mono text-[10px]">
                 {finding.targetProtocol}
@@ -349,9 +382,9 @@ export const FindingInvestigation: React.FC = () => {
             </div>
             <div className="w-px h-7 bg-[#1E293B]"></div>
             <div className="flex flex-col">
-              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Detection Confidence</span>
+              <span className="text-[10px] font-mono text-[#8d90a0] uppercase">Detection Basis</span>
               <span className="text-sm font-semibold font-mono text-[#38BDF8]">
-                {finding.confidence}% Valid
+                Deterministic Rule
               </span>
             </div>
           </div>
@@ -379,7 +412,7 @@ export const FindingInvestigation: React.FC = () => {
             <span className="text-[#8d90a0] text-[10px]">Evidence Integrity</span>
             <span className="text-[#10b981] flex items-center gap-1 font-semibold">
               <Lock className="w-3 h-3" />
-              {finding.ledgerSealStatus}
+              {finding.sourceIntegrityFingerprint || finding.sha256Hash ? "SHA-256 fingerprint recorded" : "Not available"}
             </span>
           </div>
           <div className="p-2 bg-[#151b2b] rounded flex flex-col border border-[#1E293B]/60">
@@ -429,7 +462,7 @@ export const FindingInvestigation: React.FC = () => {
                 REQUIRED CONTROL
               </span>
               <span className="px-2.5 py-0.5 rounded bg-[#93000a]/50 text-[#ffb4ab] font-semibold border border-[#ef4444]/40">
-                DIAGNOSTIC GAP LOCATED
+                POTENTIAL GAP LOCATED
               </span>
             </div>
           </div>
@@ -489,7 +522,7 @@ export const FindingInvestigation: React.FC = () => {
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Supervisory Signoff</span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">Escalation Attestation</span>
-                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Verification Ledger</span>
+                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Evidence Record</span>
                 </div>
 
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
@@ -499,7 +532,7 @@ export const FindingInvestigation: React.FC = () => {
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Attested Closure</span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">Final Disposal Validated</span>
-                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Archived to Vault</span>
+                  <span className="font-mono text-[10px] text-[#4cd7f6] mt-1">Retained in Submission</span>
                 </div>
               </div>
             </div>
@@ -509,11 +542,11 @@ export const FindingInvestigation: React.FC = () => {
               <div className="flex items-center gap-2 text-[#ef4444] font-mono text-[10px]">
                 <ArrowLeft className="w-3.5 h-3.5 rotate-[-45deg]" />
                 <span className="font-semibold uppercase tracking-wider">
-                  Observed Invariant Deviation: Escalation Evidence Absent Prior to Closure
+                  Observed Deviation: Escalation Evidence Absent Prior to Closure
                 </span>
               </div>
               <span className="font-mono text-[10px] text-[#8d90a0]">
-                FLOW CONFLICT // EXECUTION GAP IDENTIFIED
+                EXECUTION GAP IDENTIFIED
               </span>
             </div>
 
@@ -538,7 +571,7 @@ export const FindingInvestigation: React.FC = () => {
                   </div>
                   <span className="text-xs font-semibold text-[#dde2f7]">Alert Ingest</span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">{applicableCount} Cases Ingested</span>
-                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">100% Sealed</span>
+                  <span className="font-mono text-[10px] text-[#8d90a0] mt-1">Submission record retained</span>
                 </div>
 
                 <div className="p-3 bg-[#131B2E] rounded flex flex-col gap-1 border border-[#1E293B]">
@@ -666,7 +699,7 @@ export const FindingInvestigation: React.FC = () => {
               </div>
               <div className="px-2 py-0.5 rounded bg-[#1A243B] text-[#4cd7f6] font-mono text-[10px] flex items-center gap-1 border border-[#1E293B]">
                 <FileCheck className="w-3 h-3" />
-                <span>Unsupported Claims: 0</span>
+                <span>Deterministic Output</span>
               </div>
             </div>
 
@@ -675,7 +708,7 @@ export const FindingInvestigation: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] text-[#03b5d3] uppercase tracking-wider font-semibold flex items-center gap-1.5">
                   <Terminal className="w-3.5 h-3.5" />
-                  GROUND TRUTH
+                  EVALUATED DATASET
                 </span>
                 <span className="font-mono text-[10px] text-[#8d90a0]">Ingested Operational Dataset</span>
               </div>
@@ -763,9 +796,9 @@ export const FindingInvestigation: React.FC = () => {
               </span>
               <div className="p-2 bg-[#131B2E] rounded flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono border border-[#1E293B]">
                 <span className="text-[#4cd7f6]">
-                  {finding.confidence}% evidence consistency • {applicableCount} dossiers evaluated • Unsupported Claims: 0
+                  {evidenceCoverageRate}% evidence coverage • {applicableCount} applicable cases evaluated • Deterministic analysis
                 </span>
-                <span className="text-[#8d90a0]">{forensicRecords.length} records verified</span>
+                <span className="text-[#8d90a0]">{evidenceRecordCount} records linked</span>
               </div>
             </div>
 
@@ -776,7 +809,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Deterministic Trigger: <code className="text-[#4cd7f6]">{finding.ruleCode}</code></span>
               </div>
               <div className="text-[#8d90a0]">
-                Detection Confidence: <strong className="text-[#dde2f7]">{finding.confidence}%</strong> ({forensicRecords.length} Evidence Records)
+                Detection Method: <strong className="text-[#dde2f7]">Deterministic</strong> ({evidenceRecordCount} Evidence Records)
               </div>
             </div>
           </section>
@@ -849,7 +882,7 @@ export const FindingInvestigation: React.FC = () => {
                     Execution Gap Rate = {gapRateFormatted}
                   </span>
                   <span className="font-mono text-[10px] text-[#8d90a0]">
-                    Expected: 0.0% Gaps ({observedCount} / {applicableCount} Observed)
+                    Reference: 0.0% Gaps ({observedCount} / {applicableCount} with escalation evidence)
                   </span>
                 </div>
                 <AlertTriangle className="w-3.5 h-3.5 text-[#ef4444]" />
@@ -903,7 +936,7 @@ export const FindingInvestigation: React.FC = () => {
                 <div className="w-0.5 h-full bg-[#4cd7f6]"></div>
               </div>
 
-              {/* Node 6: Evidence Integrity Verification */}
+              {/* Node 6: Source Evidence Integrity */}
               <div className="p-3 bg-[#131B2E] rounded flex items-start gap-3 border border-[#03b5d3]/40">
                 <div className="w-5 h-5 rounded-full bg-[#03b5d3] text-[#001f26] flex items-center justify-center font-mono text-[10px] font-bold shrink-0 mt-0.5">
                   <Lock className="w-3 h-3" />
@@ -914,14 +947,14 @@ export const FindingInvestigation: React.FC = () => {
                       6. Evidence Integrity Fingerprint
                     </span>
                     <span className="px-1.5 py-0.2 rounded bg-[#4cd7f6]/10 text-[#4cd7f6] font-mono text-[9px] border border-[#4cd7f6]/30">
-                      VERIFIED
+                      RECORDED
                     </span>
                   </div>
                   <span className="font-mono text-[10px] text-[#dde2f7] truncate mt-0.5" title={finding.sourceIntegrityFingerprint || finding.sha256Hash}>
-                    SHA-256: {finding.sourceIntegrityFingerprint || finding.sha256Hash || 'Verified'}
+                    SHA-256 fingerprint: {finding.sourceIntegrityFingerprint || finding.sha256Hash || 'Not available'}
                   </span>
                   <span className="font-mono text-[9px] text-[#8d90a0]">
-                    Evidence Timestamp: {finding.evidenceTimestamp || finding.lastUpdated}
+                    Evidence Reference Time: {finding.evidenceTimestamp || finding.lastUpdated}
                   </span>
                 </div>
               </div>
@@ -964,7 +997,7 @@ export const FindingInvestigation: React.FC = () => {
                 <span>Export Evidence</span>
               </button>
               <span className="px-2.5 py-1 bg-[#1A243B] text-[#4cd7f6] rounded font-mono text-[10px] font-semibold border border-[#1E293B]">
-                {filteredRecords.length} Verified Evidence Records
+                {filteredRecords.length} Linked Evidence Records
               </span>
             </div>
           </div>
@@ -1016,7 +1049,7 @@ export const FindingInvestigation: React.FC = () => {
                             <XCircle className="w-3 h-3 text-[#ef4444]" />
                             <span>{record.recordedEscalation}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-[#c3c6d7]">{record.closureTimestamp}</td>
+                          <td className="px-4 py-2.5 text-[#c3c6d7]">{getDisplayClosureTimestamp(record, sourceRec)}</td>
                           <td className="px-4 py-2.5">
                             <span className="px-2 py-0.5 rounded bg-[#1A243B] text-[#c3c6d7] text-[10px] border border-[#1E293B]">
                               {record.dispositionGiven}
@@ -1142,7 +1175,7 @@ export const FindingInvestigation: React.FC = () => {
                   )}
                 </div>
                 <p className="text-xs text-[#8d90a0]">
-                  SAT-SA provides the evidence and recommendation. The supervisor makes the final review decision.{' '}
+                  SAT-SA provides evidence and analytical context. The supervisor records the final review decision.{' '}
                   <strong className="text-[#4cd7f6] uppercase font-mono text-[11px] ml-1">
                     SAT-SA recommends. Human decides.
                   </strong>
@@ -1152,7 +1185,7 @@ export const FindingInvestigation: React.FC = () => {
 
             <div className="flex items-center gap-2 text-[#8d90a0] font-mono text-[11px]">
               <ShieldCheck className="w-4 h-4 text-[#4cd7f6]" />
-              <span>Evidence Integrity Verification Active</span>
+              <span>Source Evidence Integrity Reference</span>
             </div>
           </div>
 
@@ -1238,7 +1271,7 @@ export const FindingInvestigation: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-2 border-t border-[#1E293B] font-mono text-[10px] text-[#8d90a0] gap-2">
                 <span>Supervisor: {finding.inspector} (Lead Supervisory Inspector)</span>
                 <span>Supervisory Review Time: {confirmationRecord.timestamp}</span>
-                <span>Verification Hash: <code className="text-[#4cd7f6]">{confirmationRecord.commitHash}</code></span>
+                <span>Evidence Reference: <code className="text-[#4cd7f6]">{confirmationRecord.verificationReference}</code></span>
               </div>
 
               {/* Action Controls for Recorded State */}
@@ -1285,19 +1318,19 @@ export const FindingInvestigation: React.FC = () => {
                         className="w-4 h-4 text-[#2563eb] bg-[#090D16]"
                       />
                       <span className="text-sm font-semibold text-[#ef4444]">
-                        Uphold Finding (Defect Affirmed)
+                        Uphold Finding
                       </span>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-[#ef4444]/20 text-[#ef4444] font-mono text-[10px] font-semibold border border-[#ef4444]/30">
-                      RECOMMENDED
+                      REVIEW OPTION
                     </span>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Affirms the finding as a formal regulatory defect. Operational records confirm critical alerts reached closure without requisite escalation evidence.
+                    Confirms the potential control deviation based on the evidence reviewed. The supervisor records the determination; SAT-SA does not make the final decision.
                   </p>
                   <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
                     <FileCheck className="w-3 h-3" />
-                    <span>Corrective Action Plan (CAP) Required</span>
+                    <span>Record remediation or follow-up action as appropriate</span>
                   </div>
                 </label>
 
@@ -1325,11 +1358,11 @@ export const FindingInvestigation: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Classifies event as an uncalibrated telemetry ingest issue rather than a structural operational failure. Requires supplementary records within 48 hours.
+                    Treats the finding as potentially explained by incomplete or unrepresentative submitted evidence. Additional records may be requested for review.
                   </p>
                   <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    <span>Deferred Attestation Window</span>
+                    <span>Additional evidence may be requested</span>
                   </div>
                 </label>
 
@@ -1357,11 +1390,11 @@ export const FindingInvestigation: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-xs text-[#c3c6d7] mt-0.5">
-                    Accepts entity assertion of an authorized operational waiver or valid out-of-band supervisory phone dispatch log not captured in operational data.
+                    Dismisses the finding when the supervisor has sufficient documented evidence that the observed gap is not a control deviation.
                   </p>
                   <div className="mt-auto pt-2 font-mono text-[10px] text-[#8d90a0] flex items-center gap-1">
                     <XCircle className="w-3 h-3" />
-                    <span>Requires Supervisory Review Note</span>
+                    <span>Record supporting review rationale</span>
                   </div>
                 </label>
               </div>
@@ -1412,7 +1445,7 @@ export const FindingInvestigation: React.FC = () => {
 
                   <button
                     onClick={() =>
-                      showToast(`Formal request for supplementary records dispatched to ${finding.entityCode}`)
+                      showToast(`Request for supplementary records prepared for ${finding.entityCode}`)
                     }
                     className="px-3 py-2 rounded bg-[#131B2E] hover:bg-[#1A243B] text-[#dde2f7] font-mono text-[11px] transition-colors flex items-center gap-1.5 border border-[#1E293B]"
                   >
@@ -1432,20 +1465,20 @@ export const FindingInvestigation: React.FC = () => {
             </>
           )}
 
-          {/* Evidence Integrity & Verification Footer */}
+          {/* Evidence Integrity & Provenance Footer */}
           <div className="p-2 px-3 bg-[#080e1d] rounded flex flex-col sm:flex-row sm:items-center justify-between text-[#8d90a0] font-mono text-[10px] border border-[#1E293B]">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#4cd7f6]" />
-                <span>Evidence Integrity: <span className="text-[#dde2f7] font-semibold">SHA-256 Verified</span></span>
+                <span>Source Integrity: <span className="text-[#dde2f7] font-semibold">SHA-256 fingerprint recorded</span></span>
               </div>
               <span>•</span>
               <div className="flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-[#4cd7f6]" />
-                <span>Evidence Snapshot: <span className="text-[#4cd7f6] font-semibold">Ingested & Verified</span></span>
+                <span>Evidence Snapshot: <span className="text-[#4cd7f6] font-semibold">Ingested & traceable</span></span>
               </div>
             </div>
-            <div>Verification Timestamp: <span className="text-[#dde2f7]">{finding.lastUpdated}</span></div>
+            <div>Reference Timestamp: <span className="text-[#dde2f7]">{finding.lastUpdated}</span></div>
           </div>
         </section>
 
@@ -1467,7 +1500,7 @@ export const FindingInvestigation: React.FC = () => {
                     <span className="text-[#38BDF8] font-mono">{inspectingSourceRecord.caseId}</span>
                   </h3>
                   <p className="text-[11px] font-mono text-[#8d90a0]">
-                    Raw Immutable Source Ingest // Traceability Anchor
+                    Preserved Source Ingest // Traceability Anchor
                   </p>
                 </div>
               </div>
@@ -1572,7 +1605,7 @@ export const FindingInvestigation: React.FC = () => {
             {/* Modal Footer */}
             <div className="p-3 bg-[#131B2E] border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
               <span className="text-[#8d90a0] text-[11px]">
-                Anchored into Finding Traceability Chain • Immutable Record
+                Anchored into Finding Traceability Chain • Preserved Source Record
               </span>
               <button
                 onClick={() => setInspectingSourceRecord(null)}

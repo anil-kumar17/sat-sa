@@ -1,10 +1,17 @@
 import type { CaseEvaluationDataQuality } from './analytics';
+
 export * from './negativeSpace';
 export * from './analytics';
+export * from './submission';
 
 export type SeverityLevel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
-export type FindingStatus = 'OPEN' | 'IN_REVIEW' | 'UPHELD' | 'DOWNGRADED' | 'DISMISSED';
+export type FindingStatus =
+  | 'OPEN'
+  | 'IN_REVIEW'
+  | 'UPHELD'
+  | 'DOWNGRADED'
+  | 'DISMISSED';
 
 export interface FindingProvenance {
   ruleCode: string;
@@ -22,7 +29,10 @@ export interface FindingProvenance {
   sourceRecordIds: string[];
   dataQualityLimitedCount: number;
   dataQualityLimitedCaseIds?: string[];
-  overallDataQuality: 'SUFFICIENT' | 'DATA_QUALITY_LIMITED' | 'INSUFFICIENT_DATA';
+  overallDataQuality:
+    | 'SUFFICIENT'
+    | 'DATA_QUALITY_LIMITED'
+    | 'INSUFFICIENT_DATA';
   evaluatedAt: string;
   sourceIntegrityFingerprint?: string;
 }
@@ -40,13 +50,21 @@ export interface Finding {
   targetCriticality: string;
   assessmentCycle: string;
   cycleCode: string;
+
+  // A calculated confidence value is not currently produced by the
+  // deterministic engine, so 0 means "not calculated" rather than 0% certainty.
   confidence: number;
+
   status: FindingStatus;
   date: string;
   lastUpdated: string;
   summary: string;
   inspector: string;
+
+  // Kept for compatibility with the existing UI. This is a descriptive
+  // provenance state, not a claim that the finding is cryptographically sealed.
   ledgerSealStatus: string;
+
   remediationDeadline: string;
   handshakeRate: string;
   flaggedIncidentsCount: number;
@@ -61,7 +79,7 @@ export interface Finding {
   evidenceTimestamp: string;
   recommendedAction: string;
 
-  // Step 3 Traceability & Provenance (optional for backward compatibility)
+  // Step 3 Traceability & Provenance
   submissionId?: string;
   assessmentPeriod?: string;
   affectedCaseIds?: string[];
@@ -74,7 +92,10 @@ export interface Finding {
   gapRate?: number;
   dataQualityLimitedCount?: number;
   dataQualityLimitedCaseIds?: string[];
-  overallDataQuality?: 'SUFFICIENT' | 'DATA_QUALITY_LIMITED' | 'INSUFFICIENT_DATA';
+  overallDataQuality?:
+    | 'SUFFICIENT'
+    | 'DATA_QUALITY_LIMITED'
+    | 'INSUFFICIENT_DATA';
   sourceIntegrityFingerprint?: string;
   provenance?: FindingProvenance;
 }
@@ -83,12 +104,24 @@ export interface Entity {
   id: string;
   code: string;
   name: string;
-  sector: 'Financial Core' | 'Critical Energy' | 'Defense Industrial' | 'Telecom & Satellite' | 'Health Infrastructure';
-  criticalityTier: 'Tier-1 High Assurance' | 'Tier-2 Critical' | 'Tier-3 Standard';
+  sector:
+    | 'Financial Core'
+    | 'Critical Energy'
+    | 'Defense Industrial'
+    | 'Telecom & Satellite'
+    | 'Health Infrastructure';
+  criticalityTier:
+    | 'Tier-1 High Assurance'
+    | 'Tier-2 Critical'
+    | 'Tier-3 Standard';
   openFindings: number;
   criticalDefects: number;
   complianceScore: number;
-  assessmentStatus: 'Active Audit' | 'Sealed & Compliant' | 'CAP Required' | 'Pending Review';
+  assessmentStatus:
+    | 'Active Audit'
+    | 'Sealed & Compliant'
+    | 'CAP Required'
+    | 'Pending Review';
   lastTelemetrySync: string;
   primaryContact: string;
 }
@@ -115,6 +148,7 @@ export interface ForensicRecord {
   submissionId?: string;
   caseId?: string;
   findingId?: string;
+
   alertTimestamp: string;
   triageComplete: string;
   triageDurationSeconds: number;
@@ -125,25 +159,36 @@ export interface ForensicRecord {
   provenanceHash: string;
   auditActionStatus: 'Inspected' | 'Flagged' | 'Verified';
   dataQualityStatus?: CaseEvaluationDataQuality;
+
+  // CSE submissions can contain different source fields. These known fields
+  // are optional and the index signature preserves the original payload.
   rawPayload: {
     incident_id?: string;
     entity_urn?: string;
     classification?: string;
+
     initial_triage?: {
-      operator_id: string;
-      timestamp: string;
-      threat_vector: string;
+      operator_id?: string;
+      timestamp?: string;
+      threat_vector?: string;
+      [key: string]: unknown;
     };
+
     escalation_event_recorded?: string | null;
     escalation_handshake_tokens?: string[];
+
     supervisor_review_signoff?: boolean;
+
     closure_event?: {
-      disposition: string;
-      timestamp: string;
-      elapsed_seconds: number;
+      disposition?: string;
+      timestamp?: string;
+      elapsed_seconds?: number;
+      [key: string]: unknown;
     };
+
     audit_violation_flag?: boolean;
     rule_violated?: string;
+
     [key: string]: unknown;
   };
 }
@@ -175,7 +220,11 @@ export interface SupervisorDecision {
   inspectorName: string;
   inspectorRole: string;
   correctiveActionPlanRequired: boolean;
+
+  // Legacy UI field retained for compatibility. It records the decision
+  // timestamp rather than asserting an immutable external ledger.
   ledgerTimestamp: string;
+
   sha256Verification: string;
 }
 
@@ -202,18 +251,21 @@ export interface AuditTrailEvent {
   summary: string;
 }
 
-export * from './submission';
-export * from './analytics';
-
-// ==========================================
-// OFFLINE-FIRST & SYNCHRONIZATION ARCHITECTURE
-// ==========================================
+// Offline-first synchronization
 
 export type ConnectivityState = 'ONLINE' | 'OFFLINE' | 'SYNCING';
 
-export type SyncStatus = 'PENDING_SYNC' | 'SYNCING' | 'SYNCED' | 'FAILED';
+export type SyncStatus =
+  | 'PENDING_SYNC'
+  | 'SYNCING'
+  | 'SYNCED'
+  | 'FAILED';
 
-export type QueuedActionType = 'UPHOLD_FINDING' | 'DOWNGRADE_FINDING' | 'DISMISS_FINDING' | 'REQUEST_TELEMETRY';
+export type QueuedActionType =
+  | 'UPHOLD_FINDING'
+  | 'DOWNGRADE_FINDING'
+  | 'DISMISS_FINDING'
+  | 'REQUEST_TELEMETRY';
 
 export interface PendingSyncAction {
   id: string;
@@ -230,19 +282,22 @@ export interface PendingSyncAction {
   decision?: 'UPHOLD' | 'DOWNGRADE' | 'DISMISS';
 }
 
-// ==========================================
-// REPOSITORY CONTRACT INTERFACES (Clean Architecture)
-// ==========================================
+// Repository contracts
 
 export interface IFindingRepository {
   getAll(): Promise<Finding[]>;
   getById(id: string): Promise<Finding | undefined>;
   updateStatus(id: string, status: FindingStatus): Promise<Finding>;
-  getSupervisorDecision(findingId: string): Promise<SupervisorDecision | undefined>;
+  getSupervisorDecision(
+    findingId: string
+  ): Promise<SupervisorDecision | undefined>;
   saveSupervisorDecision(decision: SupervisorDecision): Promise<void>;
   save(finding: Finding): Promise<Finding>;
   getBySubmissionId?(submissionId: string): Promise<Finding[]>;
-  getByRuleAndSubmission?(ruleCode: string, submissionId: string): Promise<Finding | undefined>;
+  getByRuleAndSubmission?(
+    ruleCode: string,
+    submissionId: string
+  ): Promise<Finding | undefined>;
 }
 
 export interface IEvidenceRepository {
@@ -267,15 +322,25 @@ export interface IEntityRepository {
 
 export interface IAuditRepository {
   getAll(): Promise<AuditTrailEvent[]>;
-  logEvent(event: Omit<AuditTrailEvent, 'id'>): Promise<AuditTrailEvent>;
+  logEvent(
+    event: Omit<AuditTrailEvent, 'id'>
+  ): Promise<AuditTrailEvent>;
 }
 
 export interface ISyncRepository {
   getQueue(): Promise<PendingSyncAction[]>;
-  enqueue(action: Omit<PendingSyncAction, 'id' | 'syncStatus' | 'retryCount'>): Promise<PendingSyncAction>;
-  updateActionStatus(id: string, syncStatus: SyncStatus, syncedAt?: string): Promise<void>;
+  enqueue(
+    action: Omit<
+      PendingSyncAction,
+      'id' | 'syncStatus' | 'retryCount'
+    >
+  ): Promise<PendingSyncAction>;
+  updateActionStatus(
+    id: string,
+    syncStatus: SyncStatus,
+    syncedAt?: string
+  ): Promise<void>;
   clearCompleted(): Promise<void>;
   getLastSyncTime(): Promise<string | null>;
   setLastSyncTime(timestamp: string): Promise<void>;
 }
-

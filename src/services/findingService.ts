@@ -1,23 +1,3 @@
-/**
- * SAT-SA (Supervisory Analytics) - Finding Generation & Traceability Service
- * 
- * ============================================================================
- * STEP 3: FINDING → EVIDENCE → SOURCE RECORD TRACEABILITY
- * 
- * Architectural Mandate:
- * "A finding must never exist as an unsupported UI claim.
- * Every analytically generated finding must have a traceable evidence chain:
- * Finding → Rule → Metric → Affected Case → sourceRecordId → Original SourceRecord → Original Raw Payload."
- * 
- * Invariants:
- *  1. Purely deterministic and idempotent (same submission + rule produces exact same finding ID).
- *  2. No finding generated if gapCount === 0.
- *  3. Finding metrics derived dynamically from ExecutionGapResult (no hardcoded counts).
- *  4. Human review is the decision layer; findings represent potential deviations.
- *  5. Data quality limitations are surfaced clearly.
- * ============================================================================
- */
-
 import {
   Finding,
   FindingProvenance,
@@ -26,7 +6,12 @@ import {
   SourceRecord,
   ExecutionGapResult
 } from '../types';
-import { findingsRepository, evidenceRepository, auditRepository, sourceRecordRepository } from '../repositories';
+import {
+  findingsRepository,
+  evidenceRepository,
+  auditRepository,
+  sourceRecordRepository
+} from '../repositories';
 
 export interface GenerateFindingOptions {
   inspector?: string;
@@ -42,9 +27,8 @@ export interface GenerateFindingResult {
 }
 
 /**
- * Deterministically construct a stable finding ID based on:
- * ruleCode + entityCode + submissionId
- * Ensures repeated runs are idempotent and never create duplicate findings.
+ * Keep the finding ID stable so running the same analysis again
+ * updates the same finding instead of creating another one.
  */
 export function generateDeterministicFindingId(
   ruleCode: string,
@@ -54,18 +38,10 @@ export function generateDeterministicFindingId(
   const cleanRule = ruleCode.replace(/[^A-Za-z0-9]/g, '');
   const cleanEntity = entityCode.replace(/[^A-Za-z0-9]/g, '');
   const cleanSub = submissionId.replace(/[^A-Za-z0-9]/g, '');
+
   return `FND-${cleanRule}-${cleanEntity}-${cleanSub}`;
 }
 
-/**
- * Generates or updates a deterministic Finding from an ExecutionGapResult.
- * 
- * Rules:
- *  - If gapCount === 0: Returns findingGenerated: false (NO finding is generated).
- *  - If gapCount > 0: Deterministically constructs the Finding, links all affected
- *    cases and sourceRecordIds, creates explicit ForensicRecords, and persists
- *    via findingsRepository and evidenceRepository.
- */
 export async function generateFindingFromExecutionGap(
   submission: CSESubmission,
   gapResult: ExecutionGapResult,
@@ -74,86 +50,191 @@ export async function generateFindingFromExecutionGap(
 ): Promise<GenerateFindingResult> {
   const { summary, caseEvaluations } = gapResult;
 
-  // RULE CONDITION: If zero execution gaps exist, do not generate a finding.
   if (summary.gapCount === 0 || !summary.hasGaps) {
     return {
       success: true,
       findingGenerated: false,
-      reason: `Zero execution gaps detected for ${summary.ruleCode} in submission ${submission.submissionId}. No finding generated.`
+      reason:
+        `Zero execution gaps detected for ${summary.ruleCode} ` +
+        `in submission ${submission.submissionId}. No finding generated.`
     };
   }
 
-  // Retrieve source records from repo if not provided
   let availableSourceRecords = sourceRecords;
+
   if (!availableSourceRecords || availableSourceRecords.length === 0) {
     try {
-      availableSourceRecords = await sourceRecordRepository.getBySubmissionId(submission.submissionId);
+      availableSourceRecords =
+        await sourceRecordRepository.getBySubmissionId(
+          submission.submissionId
+        );
     } catch {
       availableSourceRecords = [];
     }
   }
 
   const sourceRecordMap = new Map<string, SourceRecord>();
-  if (availableSourceRecords) {
-    for (const sr of availableSourceRecords) {
-      sourceRecordMap.set(sr.id, sr);
-    }
+
+  for (const sourceRecord of availableSourceRecords || []) {
+    sourceRecordMap.set(sourceRecord.id, sourceRecord);
   }
 
-  // Identify cases with execution gaps
-  const gapEvaluations = caseEvaluations.filter(c => c.hasExecutionGap);
-  const affectedCaseIds = summary.affectedCaseIds;
-  const sourceRecordIds = summary.evidenceRecordIds;
+  const gapEvaluations = caseEvaluations.filter(
+    evaluation => evaluation.hasExecutionGap
+  );
 
-  // Generate deterministic finding ID
+  const affectedCaseIds = gapEvaluations.map(
+    evaluation => evaluation.caseId
+  );
+
+  const sourceRecordIds = gapEvaluations
+    .map(evaluation => evaluation.sourceRecordId)
+    .filter((id): id is string => Boolean(id));
+
   const findingId = generateDeterministicFindingId(
     summary.ruleCode,
     submission.entityCode,
     submission.submissionId
   );
 
-  // Derive all metrics dynamically from ExecutionGapResult
   const applicableCases = summary.applicableCaseCount;
   const observedCount = summary.observedCount;
   const gapCount = summary.gapCount;
   const expectedCount = summary.expectedCount;
   const gapRate = summary.gapRate;
-  const handshakeRateStr = applicableCases > 0
-    ? `${((observedCount / applicableCases) * 100).toFixed(1)}%`
-    : '0.0%';
+
+  const handshakeRate =
+    applicableCases > 0
+      ? `${((observedCount / applicableCases) * 100).toFixed(1)}%`
+      : '0.0%';
 
   const dataQualityLimitedCaseIds = caseEvaluations
-    .filter(c => c.dataQualityStatus === 'DATA_QUALITY_LIMITED')
-    .map(c => c.caseId);
+    .filter(
+      evaluation =>
+        evaluation.dataQualityStatus === 'DATA_QUALITY_LIMITED'
+    )
+    .map(evaluation => evaluation.caseId);
 
-  // Restrained, evidence-based title & summary
   const findingTitle = 'Potential Required Escalation Evidence Gap';
-  const findingSummary = `${gapCount} of ${applicableCases} applicable critical cases did not contain recorded escalation evidence in the submitted operational records.`;
 
-  // Provenance metadata structure
+  const findingSummary =
+    `${gapCount} of ${applicableCases} applicable critical cases did not ` +
+    `contain recorded escalation evidence in the submitted operational records.`;
+
+  const assessmentPeriod =
+    submission.assessmentPeriod ||
+    options?.assessmentCycle ||
+    'Assessment period not specified';
+
+  const sourceIntegrityFingerprint = submission.fileHash || '';
+
+  /*
+   * Build the forensic records first. Their incident IDs are the IDs
+   * the evidence repository uses, so the finding can point to real
+   * evidence records instead of inventing another identifier.
+   */
+  const forensicRecords: ForensicRecord[] = gapEvaluations.map(
+    evaluation => {
+      const sourceRecord = evaluation.sourceRecordId
+        ? sourceRecordMap.get(evaluation.sourceRecordId)
+        : undefined;
+
+      const rawPayload =
+        sourceRecord?.rawPayload ||
+        evaluation.rawPayloadSnippet ||
+        {};
+
+      const sourceFingerprint =
+        sourceRecord?.sha256Fingerprint ||
+        sourceIntegrityFingerprint ||
+        '';
+
+      const alertTimestamp =
+        evaluation.alertTimestamp || 'Not recorded';
+
+      const triageTimestamp =
+        evaluation.triageTimestamp || 'Not recorded';
+
+      const escalationTimestamp =
+        evaluation.escalationTimestamp || 'Not recorded';
+
+      const closureTimestamp =
+        evaluation.closureTimestamp || 'Not recorded';
+
+      return {
+        incidentId: evaluation.caseId,
+        sourceRecordId: evaluation.sourceRecordId,
+        submissionId: submission.submissionId,
+        caseId: evaluation.caseId,
+        findingId,
+
+        alertTimestamp,
+
+        triageComplete:
+          evaluation.triageTimestamp
+            ? `${triageTimestamp} (Recorded)`
+            : 'Not recorded',
+
+        // No duration is calculated unless the source data provides one.
+        triageDurationSeconds: 0,
+
+        recordedEscalation:
+          evaluation.escalationTimestamp
+            ? escalationTimestamp
+            : 'Not recorded',
+
+        closureTimestamp,
+
+        // Keep this neutral until the source schema gives us both timestamps.
+        elapsedMinutes: 0,
+
+        dispositionGiven:
+          evaluation.disposition || 'Not recorded',
+
+        provenanceHash: sourceFingerprint,
+
+        auditActionStatus: 'Flagged',
+
+        dataQualityStatus:
+          evaluation.dataQualityStatus,
+
+        // The submitted payload is kept as received.
+        rawPayload
+      };
+    }
+  );
+
+  /*
+   * The evidence repository uses incidentId as its lookup key.
+   * These are therefore actual IDs of records being saved below.
+   */
+  const evidenceRecordIds = forensicRecords.map(
+    record => record.incidentId
+  );
+
   const provenance: FindingProvenance = {
     ruleCode: summary.ruleCode,
     submissionId: submission.submissionId,
     entityId: submission.entityId,
     entityCode: submission.entityCode,
-    assessmentPeriod: submission.assessmentPeriod || options?.assessmentCycle || 'Q1-2025 (Cycle 14)',
+    assessmentPeriod,
     applicableCaseCount: applicableCases,
     expectedCount,
     observedCount,
     gapCount,
     gapRate,
     affectedCaseIds,
-    evidenceRecordIds: affectedCaseIds, // Each affected case corresponds to an evidence dossier record
+    evidenceRecordIds,
     sourceRecordIds,
     dataQualityLimitedCount: summary.dataQualityLimitedCount,
     dataQualityLimitedCaseIds,
     overallDataQuality: summary.overallDataQuality,
     evaluatedAt: summary.evaluatedAt,
-    sourceIntegrityFingerprint: submission.fileHash
+    sourceIntegrityFingerprint
   };
 
-  // Construct Finding model
-  const nowUtc = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  const nowUtc = new Date().toISOString();
+
   const finding: Finding = {
     id: findingId,
     defectCode: 'P0',
@@ -163,36 +244,50 @@ export async function generateFindingFromExecutionGap(
     entityId: submission.entityId,
     entityName: `${submission.entityCode} Operational Entity`,
     entityCode: submission.entityCode,
-    sector: 'Financial Core',
-    targetCriticality: 'Tier-1 Operational Core',
-    assessmentCycle: options?.assessmentCycle || submission.assessmentPeriod || 'Q1-2025 (Cycle 14)',
-    cycleCode: options?.cycleCode || 'C14',
-    confidence: summary.overallDataQuality === 'SUFFICIENT' ? 99.4 : 88.5,
-    status: 'OPEN', // Human review remains the decision layer
-    date: submission.importedAt ? submission.importedAt.split('T')[0] : new Date().toISOString().split('T')[0],
+    sector: 'Not specified in submission',
+    targetCriticality: 'CRITICAL',
+    assessmentCycle: assessmentPeriod,
+    cycleCode: options?.cycleCode || 'UNSPECIFIED',
+
+    // A confidence model has not been implemented yet.
+    confidence: 0,
+
+    status: 'OPEN',
+    date: submission.importedAt
+      ? submission.importedAt.split('T')[0]
+      : nowUtc.split('T')[0],
     lastUpdated: nowUtc,
     summary: findingSummary,
-    inspector: options?.inspector || 'SAT-SA Deterministic Analytics Engine',
-    ledgerSealStatus: 'SHA-256 Fingerprint Verified',
-    remediationDeadline: '10 Business Days (Supervisory Review)',
-    handshakeRate: handshakeRateStr,
+    inspector:
+      options?.inspector ||
+      'SAT-SA Deterministic Analytics Engine',
+
+    ledgerSealStatus: sourceIntegrityFingerprint
+      ? 'SHA-256 Source Fingerprint Recorded'
+      : 'Source Fingerprint Not Available',
+
+    remediationDeadline: 'Supervisory review required',
+    handshakeRate,
     flaggedIncidentsCount: gapCount,
     totalEvaluatedIncidents: applicableCases,
     unsupportedClaimsCount: 0,
-    primaryOffset: 'Offset: Operational Ingest Batch',
-    targetProtocol: 'Mandatory Escalation Protocol §4.2',
-    sensorSource: 'CSE-OPERATIONAL-INGEST',
+    primaryOffset: 'Operational submission',
+    targetProtocol: summary.ruleCode,
+    sensorSource: 'CSE Operational Submission',
     telemetryFile: submission.fileName,
-    telemetryOffset: `${submission.recordCount} operational records evaluated`,
-    sha256Hash: submission.fileHash,
+    telemetryOffset:
+      `${submission.recordCount} operational records evaluated`,
+    sha256Hash: sourceIntegrityFingerprint,
     evidenceTimestamp: summary.evaluatedAt,
-    recommendedAction: 'Supervisory review recommended. Verify whether out-of-band escalation occurred or initiate corrective action.',
 
-    // Step 3 Traceability fields
+    recommendedAction:
+      'Review the affected cases and determine whether escalation occurred ' +
+      'outside the submitted evidence or whether corrective action is required.',
+
     submissionId: submission.submissionId,
     assessmentPeriod: submission.assessmentPeriod,
     affectedCaseIds,
-    evidenceRecordIds: affectedCaseIds,
+    evidenceRecordIds,
     sourceRecordIds,
     applicableCaseCount: applicableCases,
     expectedCount,
@@ -202,83 +297,40 @@ export async function generateFindingFromExecutionGap(
     dataQualityLimitedCount: summary.dataQualityLimitedCount,
     dataQualityLimitedCaseIds,
     overallDataQuality: summary.overallDataQuality,
-    sourceIntegrityFingerprint: submission.fileHash,
+    sourceIntegrityFingerprint,
     provenance
   };
 
-  // Build explicit ForensicRecord evidence for each affected case
-  const forensicRecords: ForensicRecord[] = gapEvaluations.map((evalCase) => {
-    const sourceRec = sourceRecordMap.get(evalCase.sourceRecordId);
-    const rawPayload = sourceRec?.rawPayload || evalCase.rawPayloadSnippet || {
-      case_id: evalCase.caseId,
-      entity_id: evalCase.entityId,
-      severity: evalCase.severity,
-      alert_timestamp: evalCase.alertTimestamp,
-      triage_timestamp: evalCase.triageTimestamp,
-      escalation_timestamp: evalCase.escalationTimestamp,
-      disposition: evalCase.disposition
-    };
-
-    return {
-      incidentId: evalCase.caseId,
-      sourceRecordId: evalCase.sourceRecordId,
-      submissionId: submission.submissionId,
-      caseId: evalCase.caseId,
-      findingId: finding.id,
-      alertTimestamp: evalCase.alertTimestamp || 'N/A',
-      triageComplete: evalCase.triageTimestamp ? `${evalCase.triageTimestamp} (Recorded)` : 'N/A',
-      triageDurationSeconds: 120,
-      recordedEscalation: 'NULL (0 Tokens)',
-      closureTimestamp: evalCase.triageTimestamp || evalCase.alertTimestamp || 'N/A',
-      elapsedMinutes: 4.2,
-      dispositionGiven: evalCase.disposition || 'Premature Closure',
-      provenanceHash: sourceRec ? sourceRec.sha256Fingerprint.substring(0, 16) + '...' : submission.fileHash.substring(0, 16) + '...',
-      auditActionStatus: 'Flagged',
-      dataQualityStatus: evalCase.dataQualityStatus,
-      rawPayload: {
-        incident_id: evalCase.caseId,
-        entity_urn: `urn:cse:${submission.entityCode.toLowerCase()}:operational`,
-        classification: 'TIER_3_CRITICAL_DEFECT',
-        initial_triage: {
-          operator_id: 'OP-INGEST',
-          timestamp: evalCase.triageTimestamp || evalCase.alertTimestamp || '',
-          threat_vector: String(evalCase.disposition || 'Operational Alert')
-        },
-        escalation_event_recorded: null,
-        escalation_handshake_tokens: [],
-        supervisor_review_signoff: false,
-        closure_event: {
-          disposition: evalCase.disposition || 'UNSPECIFIED',
-          timestamp: evalCase.triageTimestamp || evalCase.alertTimestamp || '',
-          elapsed_seconds: 250
-        },
-        audit_violation_flag: true,
-        rule_violated: `${summary.ruleCode}: Mandatory Escalation Required for Critical Operational Cases`,
-        ...rawPayload
-      }
-    };
-  });
-
-  // Explicitly associate and save evidence records (only for affected cases)
   await evidenceRepository.saveMany(forensicRecords);
-
-  // Persist finding idempotently in repository
   await findingsRepository.save(finding);
 
-  // Record audit trail event
   try {
     await auditRepository.logEvent({
-      timestamp: new Date().toISOString(),
-      inspector: options?.inspector || 'SAT-SA Deterministic Analytics Engine',
+      timestamp: nowUtc,
+      inspector:
+        options?.inspector ||
+        'SAT-SA Deterministic Analytics Engine',
       actionType: 'FINDING_GENERATED',
       targetEntity: submission.entityCode,
       targetRef: finding.id,
-      provenanceHash: submission.fileHash,
-      integrityStatus: 'VALIDATED',
-      summary: `Generated deterministic potential finding ${finding.id} for ${summary.ruleCode} (${gapCount} execution gaps in submission ${submission.submissionId}).`
+      provenanceHash: sourceIntegrityFingerprint,
+
+      // A recorded fingerprint is not the same thing as validation.
+      // Leave the audit state pending until an actual verification step exists.
+      integrityStatus: sourceIntegrityFingerprint
+        ? 'PENDING'
+        : 'PENDING',
+
+      summary:
+        `Generated potential finding ${finding.id} from ` +
+        `${summary.ruleCode}: ${gapCount} potential execution gaps ` +
+        `in submission ${submission.submissionId}.`
     });
-  } catch (err) {
-    console.warn('Could not log audit trail event for finding generation:', err);
+  } catch (error) {
+    console.warn(
+      'Could not log audit trail event for finding generation:',
+      error
+    );
   }
 
   return {
@@ -288,33 +340,54 @@ export async function generateFindingFromExecutionGap(
   };
 }
 
-/**
- * Retrieves the full evidence traceability chain for a finding:
- * Finding → Rule → Metric → Affected Case → sourceRecordId → Original SourceRecord → Raw Payload
- */
-export async function getEvidenceChainForFinding(finding: Finding): Promise<{
+export async function getEvidenceChainForFinding(
+  finding: Finding
+): Promise<{
   finding: Finding;
   evidenceRecords: ForensicRecord[];
   sourceRecords: SourceRecord[];
   chainComplete: boolean;
 }> {
-  // Retrieve specific evidence records by ID list (never evidenceRepository.getAll())
-  const evidenceRecordIds = finding.evidenceRecordIds || finding.affectedCaseIds || [];
-  const evidenceRecords = await evidenceRepository.getByIds(evidenceRecordIds);
+  const evidenceRecordIds =
+    finding.evidenceRecordIds || [];
 
-  // Retrieve source records by ID list
-  const sourceRecordIds = finding.sourceRecordIds || [];
+  const evidenceRecords =
+    await evidenceRepository.getByIds(evidenceRecordIds);
+
+  const sourceRecordIds =
+    finding.sourceRecordIds || [];
+
   const sourceRecords: SourceRecord[] = [];
-  for (const srId of sourceRecordIds) {
-    const sr = await sourceRecordRepository.getById(srId);
-    if (sr) sourceRecords.push(sr);
+
+  for (const sourceRecordId of sourceRecordIds) {
+    const sourceRecord =
+      await sourceRecordRepository.getById(sourceRecordId);
+
+    if (sourceRecord) {
+      sourceRecords.push(sourceRecord);
+    }
   }
+
+  const evidenceComplete =
+    evidenceRecords.length === evidenceRecordIds.length;
+
+  const sourceRecordsComplete =
+    sourceRecords.length === sourceRecordIds.length;
+
+  /*
+   * A finding with no evidence IDs should not accidentally appear
+   * complete just because there are no missing records.
+   */
+  const chainComplete =
+    evidenceRecordIds.length > 0 &&
+    evidenceComplete &&
+    sourceRecordsComplete;
 
   return {
     finding,
     evidenceRecords,
     sourceRecords,
-    chainComplete: evidenceRecords.length > 0
+    chainComplete
   };
 }
 

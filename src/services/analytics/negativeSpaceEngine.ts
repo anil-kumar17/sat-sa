@@ -1,29 +1,13 @@
 /**
  * SAT-SA Deterministic Negative Space Analysis Engine
- * 
+ *
  * Rule: RULE-NS-ESC-01 — Expected Escalation Evidence Absence
- * 
- * Purpose:
- * Pure deterministic calculation engine that identifies applicable critical
- * operational cases where expected escalation evidence is absent from submitted
- * records, while strictly accounting for applicability, completeness, and
- * observation window validity.
- * 
- * CORE SUPERVISORY PRINCIPLE:
- * ABSENCE OF EVIDENCE ≠ PROOF THAT THE ACTIVITY DID NOT OCCUR.
- * 
- * The engine must explicitly distinguish:
- * 1. EVIDENCE_PRESENT
- * 2. EVIDENCE_NOT_PRESENT
- * 3. DATA_QUALITY_LIMITED
- * 4. NOT_APPLICABLE
- * 5. INCONCLUSIVE
- * 
- * The engine must NEVER automatically claim misconduct, negligence, compromise,
- * or confirmed control failure.
- * 
- * EVALUATION PIPELINE:
- * Expected activity → Applicability → Submission completeness → Observation validity → Evidence availability → Negative-space classification
+ *
+ * Identifies applicable critical cases where expected escalation evidence
+ * is absent from submitted records, while accounting for data quality,
+ * completeness, and observation-window validity.
+ *
+ * Absence of evidence is not proof that the activity did not occur.
  */
 
 import {
@@ -33,8 +17,7 @@ import {
 } from '../../types/submission';
 import {
   NegativeSpaceResult,
-  CaseNegativeSpaceEvaluation,
-  NegativeSpaceClassification
+  CaseNegativeSpaceEvaluation
 } from '../../types/negativeSpace';
 
 export const RULE_NS_ESC_01_METADATA = {
@@ -47,8 +30,8 @@ export const RULE_NS_ESC_01_METADATA = {
 };
 
 /**
- * Helper to test whether an alert timestamp falls within an assessment period
- * format like "YYYY-Q1" | "YYYY-Q2" | "YYYY-Q3" | "YYYY-Q4" or "YYYY".
+ * Checks whether a timestamp can be verified against the supplied
+ * assessment period.
  */
 export function isTimestampInObservationWindow(
   timestampStr: string,
@@ -57,66 +40,78 @@ export function isTimestampInObservationWindow(
   if (!periodStr || periodStr.trim() === '') {
     return {
       inWindow: false,
-      reason: 'Observation window cannot be verified: assessment period metadata is missing in submitted data.'
+      reason:
+        'Observation window cannot be verified because assessment period metadata is missing.'
     };
   }
 
   const d = new Date(timestampStr);
+
   if (isNaN(d.getTime())) {
     return {
       inWindow: false,
-      reason: `Malformed timestamp "${timestampStr}" prevents observation window verification.`
+      reason:
+        `Malformed timestamp "${timestampStr}" prevents observation window verification.`
     };
   }
 
   const cleanPeriod = periodStr.trim().toUpperCase();
 
-  // Pattern: YYYY-Q# (e.g. 2026-Q3, 2025-Q1)
-  const quarterMatch = cleanPeriod.match(/^(\d{4})[-_ ]?Q([1-4])$/);
+  const quarterMatch = cleanPeriod.match(
+    /^(\d{4})[-_ ]?Q([1-4])$/
+  );
+
   if (quarterMatch) {
     const periodYear = parseInt(quarterMatch[1], 10);
     const periodQuarter = parseInt(quarterMatch[2], 10);
 
     const recordYear = d.getUTCFullYear();
-    const recordMonth = d.getUTCMonth() + 1; // 1-12
+    const recordMonth = d.getUTCMonth() + 1;
     const recordQuarter = Math.ceil(recordMonth / 3);
 
-    if (recordYear !== periodYear || recordQuarter !== periodQuarter) {
+    if (
+      recordYear !== periodYear ||
+      recordQuarter !== periodQuarter
+    ) {
       return {
         inWindow: false,
-        reason: `Record timestamp (${timestampStr.substring(0, 10)}) falls outside assessment observation window (${cleanPeriod}). Recorded in ${recordYear}-Q${recordQuarter}.`
+        reason:
+          `Record timestamp (${timestampStr.substring(0, 10)}) ` +
+          `falls outside assessment observation window (${cleanPeriod}). ` +
+          `Recorded in ${recordYear}-Q${recordQuarter}.`
       };
     }
+
     return { inWindow: true };
   }
 
-  // Pattern: YYYY (annual cycle)
   const yearMatch = cleanPeriod.match(/^(\d{4})$/);
+
   if (yearMatch) {
     const periodYear = parseInt(yearMatch[1], 10);
     const recordYear = d.getUTCFullYear();
+
     if (recordYear !== periodYear) {
       return {
         inWindow: false,
-        reason: `Record timestamp year (${recordYear}) falls outside assessment observation window year (${periodYear}).`
+        reason:
+          `Record timestamp year (${recordYear}) falls outside ` +
+          `assessment observation window year (${periodYear}).`
       };
     }
+
     return { inWindow: true };
   }
 
-  // Fallback: If format is custom/unknown (e.g. "Cycle 14"), we cannot formally disprove window
-  return { inWindow: true };
+  // Unknown/custom period formats cannot establish observation validity.
+  return {
+    inWindow: false,
+    reason:
+      `Assessment period "${periodStr}" uses an unsupported format. ` +
+      'Observation window cannot be verified deterministically.'
+  };
 }
 
-/**
- * Pure deterministic calculation engine for Negative Space Analysis.
- * Evaluates submitted operational records under RULE-NS-ESC-01.
- * 
- * @param records Normalized case records from CSE operational submission
- * @param submission Optional submission metadata (for period and completeness context)
- * @param qualityReport Optional data quality report (for error-level issues)
- * @returns Fully audited NegativeSpaceResult with case-by-case and aggregate metrics
- */
 export function calculateNegativeSpace(
   records: NormalizedCaseRecord[],
   submission?: SubmissionMetadata | null,
@@ -125,10 +120,10 @@ export function calculateNegativeSpace(
   const evaluatedAt = new Date().toISOString();
   const warnings: string[] = [];
 
-  // Default quiet-period context warning (never invent maintenance periods)
-  warnings.push('Quiet-period context unavailable in submitted data.');
+  warnings.push(
+    'Quiet-period context unavailable in submitted data.'
+  );
 
-  // Check overall submission quality state
   const isSubmissionQualityRejected =
     submission?.dataQualityStatus === 'REJECTED' ||
     submission?.dataQualityStatus === 'INVALID';
@@ -139,16 +134,19 @@ export function calculateNegativeSpace(
 
   if (isSubmissionQualityRejected) {
     warnings.push(
-      'Submission data quality status is marked REJECTED/INVALID. Negative-space observations are constrained by compromised source integrity.'
+      'Submission data quality status is marked REJECTED/INVALID. ' +
+      'Negative-space observations are constrained by source quality.'
     );
   } else if (isLowCompleteness) {
     warnings.push(
-      `Submission completeness (${submission?.completenessPercentage}%) is below supervisory threshold. Observation validity may be limited.`
+      `Submission completeness (${submission?.completenessPercentage}%) ` +
+      'is below the supervisory threshold. Negative-space absence ' +
+      'claims will not be treated as determinative.'
     );
   }
 
-  // Build lookup of cases with ERROR-severity data quality issues
   const casesWithQualityErrors = new Set<string>();
+
   if (qualityReport?.issues) {
     for (const issue of qualityReport.issues) {
       if (issue.severity === 'ERROR' && issue.caseId) {
@@ -157,25 +155,45 @@ export function calculateNegativeSpace(
     }
   }
 
-  const assessmentPeriod = submission?.assessmentPeriod || (records.length > 0 ? records[0].assessmentPeriod : 'UNKNOWN_PERIOD');
-  const submissionId = submission?.submissionId || (records.length > 0 ? records[0].submissionId : 'UNKNOWN_SUBMISSION');
-  const entityId = submission?.entityId || (records.length > 0 ? records[0].entityId : 'UNKNOWN_ENTITY');
-  const entityCode = submission?.entityCode || (records.length > 0 ? records[0].entityCode : 'CSE-UNKNOWN');
+  const assessmentPeriod =
+    submission?.assessmentPeriod ||
+    (records.length > 0
+      ? records[0].assessmentPeriod
+      : 'UNKNOWN_PERIOD');
+
+  const submissionId =
+    submission?.submissionId ||
+    (records.length > 0
+      ? records[0].submissionId
+      : 'UNKNOWN_SUBMISSION');
+
+  const entityId =
+    submission?.entityId ||
+    (records.length > 0
+      ? records[0].entityId
+      : 'UNKNOWN_ENTITY');
+
+  const entityCode =
+    submission?.entityCode ||
+    (records.length > 0
+      ? records[0].entityCode
+      : 'CSE-UNKNOWN');
 
   const caseEvaluations: CaseNegativeSpaceEvaluation[] = [];
 
   for (const record of records) {
-    // -------------------------------------------------------------
-    // GATE 1: APPLICABILITY GATE
-    // -------------------------------------------------------------
-    // RULE-NS-ESC-01 strictly applies to CRITICAL cases.
-    // Non-critical cases are classified as NOT_APPLICABLE.
-    // Do NOT infer applicability from missing evidence.
+    const caseId = record.caseId || 'UNKNOWN_CASE';
+
+    /*
+     * Gate 1: Applicability
+     *
+     * RULE-NS-ESC-01 applies only to CRITICAL cases.
+     */
     const isCritical = record.severity === 'CRITICAL';
 
     if (!isCritical) {
       caseEvaluations.push({
-        caseId: record.caseId || 'UNKNOWN_CASE',
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -190,28 +208,70 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: false,
         passedObservationWindowGate: false,
-        reason: `Severity is ${record.severity}; RULE-NS-ESC-01 applies exclusively to CRITICAL operational cases.`,
+        reason:
+          `Severity is ${record.severity}; RULE-NS-ESC-01 applies ` +
+          'exclusively to CRITICAL operational cases.',
         rawPayloadSnippet: record.sourcePayload
       });
+
       continue;
     }
 
-    // -------------------------------------------------------------
-    // GATE 2: SUBMISSION COMPLETENESS GATE
-    // -------------------------------------------------------------
-    // Mandatory check: Before classifying a missing escalation event as negative space,
-    // determine whether the submitted record contains enough information to make that observation meaningful.
-    const hasIdentifier = Boolean(record.caseId && record.caseId.trim().length > 0);
-    const hasValidAlertTimestamp = Boolean(
-      record.alertTimestamp && !isNaN(Date.parse(record.alertTimestamp))
-    );
-    const hasDataQualityError = casesWithQualityErrors.has(record.caseId);
-    const hasIncompleteSubmissionState =
-      record.evidencePresence?.escalationEvidence === 'INCOMPLETE_SUBMISSION';
+    /*
+     * Gate 2: Submission completeness.
+     *
+     * If the source itself cannot establish a reliable case baseline,
+     * absence of escalation evidence cannot be interpreted.
+     */
+    const hasIdentifier =
+      Boolean(record.caseId && record.caseId.trim().length > 0);
 
-    if (!hasIdentifier || !hasValidAlertTimestamp || hasDataQualityError || hasIncompleteSubmissionState || isSubmissionQualityRejected) {
+    const hasValidAlertTimestamp =
+      Boolean(
+        record.alertTimestamp &&
+        !isNaN(Date.parse(record.alertTimestamp))
+      );
+
+    const hasDataQualityError =
+      casesWithQualityErrors.has(caseId);
+
+    const hasIncompleteSubmissionState =
+      record.evidencePresence?.escalationEvidence ===
+      'INCOMPLETE_SUBMISSION';
+
+    const completenessLimited =
+      !hasIdentifier ||
+      !hasValidAlertTimestamp ||
+      hasDataQualityError ||
+      hasIncompleteSubmissionState ||
+      isSubmissionQualityRejected ||
+      isLowCompleteness;
+
+    if (completenessLimited) {
+      let reason =
+        'Negative-space assessment is limited by incomplete source fields or data-quality conditions.';
+
+      if (isLowCompleteness) {
+        reason =
+          `Submission completeness (${submission?.completenessPercentage}%) ` +
+          'is below the supervisory threshold. A missing escalation record ' +
+          'cannot be classified as reliable negative space.';
+      } else if (isSubmissionQualityRejected) {
+        reason =
+          'Submission quality is REJECTED/INVALID. ' +
+          'A reliable evidence baseline cannot be established.';
+      } else if (hasIncompleteSubmissionState) {
+        reason =
+          'The source record explicitly indicates incomplete submission ' +
+          'coverage for escalation evidence.';
+      } else if (hasDataQualityError) {
+        reason =
+          'The source record has an ERROR-level data-quality issue. ' +
+          'Evidence absence cannot be interpreted reliably.';
+      }
+
       caseEvaluations.push({
-        caseId: record.caseId || 'UNKNOWN_CASE',
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -226,24 +286,26 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: false,
         passedObservationWindowGate: false,
-        reason: 'Negative-space assessment limited by incomplete source fields or severe data-quality defect. Cannot establish evidence baseline.',
+        reason,
         rawPayloadSnippet: record.sourcePayload
       });
+
       continue;
     }
 
-    // -------------------------------------------------------------
-    // GATE 3: OBSERVATION VALIDITY GATE (Window & Quiet/Maintenance Periods)
-    // -------------------------------------------------------------
-    // Check 3A: Observation Window
+    /*
+     * Gate 3: Observation validity.
+     */
     const windowCheck = isTimestampInObservationWindow(
       record.alertTimestamp,
-      assessmentPeriod !== 'UNKNOWN_PERIOD' ? assessmentPeriod : undefined
+      assessmentPeriod !== 'UNKNOWN_PERIOD'
+        ? assessmentPeriod
+        : undefined
     );
 
     if (!windowCheck.inWindow) {
       caseEvaluations.push({
-        caseId: record.caseId,
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -258,23 +320,37 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: true,
         passedObservationWindowGate: false,
-        reason: windowCheck.reason || 'Record falls outside observation window. Observation validity cannot be confirmed.',
+        reason:
+          windowCheck.reason ||
+          'Observation window cannot be verified.',
         rawPayloadSnippet: record.sourcePayload
       });
+
       continue;
     }
 
-    // Check 3B: Explicit Quiet / Maintenance Period Indicators
-    // If the record explicitly references maintenance activity, check if quiet-period protocol logs were provided.
-    // If quiet-period context is unavailable, classify as INCONCLUSIVE.
-    const dispositionUpper = (record.disposition || '').toUpperCase();
+    /*
+     * Maintenance / quiet-period context.
+     *
+     * We do not assume that maintenance means escalation was exempt.
+     * Without supporting quiet-period evidence, the result remains
+     * inconclusive.
+     */
+    const dispositionUpper =
+      (record.disposition || '').toUpperCase();
+
+    const sourcePayload =
+      record.sourcePayload as
+        | Record<string, unknown>
+        | undefined;
+
     const isExplicitMaintenance =
       dispositionUpper.includes('MAINTENANCE') ||
-      Boolean((record.sourcePayload as Record<string, unknown> | undefined)?.maintenance_mode);
+      Boolean(sourcePayload?.maintenance_mode);
 
     if (isExplicitMaintenance) {
       caseEvaluations.push({
-        caseId: record.caseId,
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -289,26 +365,33 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: true,
         passedObservationWindowGate: true,
-        quietPeriodNote: 'Quiet-period context unavailable in submitted data.',
-        reason: `Record references maintenance activity (${record.disposition}), but explicit quiet-period protocol logs/exemptions are unavailable in submitted data. Evidence absence is inconclusive.`,
+        quietPeriodNote:
+          'Quiet-period context unavailable in submitted data.',
+        reason:
+          `Record references maintenance activity (${record.disposition}), ` +
+          'but supporting quiet-period protocol logs or exemptions are ' +
+          'unavailable. Evidence absence is inconclusive.',
         rawPayloadSnippet: record.sourcePayload
       });
+
       continue;
     }
 
-    // -------------------------------------------------------------
-    // GATE 4: EVIDENCE AVAILABILITY GATE
-    // -------------------------------------------------------------
-    // Case is CRITICAL, passed completeness, and within verified observation window.
-    const hasEscalationEvidence = Boolean(
-      record.escalationRecorded ||
-      (record.escalationTimestamp && record.escalationTimestamp.trim() !== '') ||
-      record.evidencePresence?.escalationEvidence === 'EVIDENCE_PRESENT'
-    );
+    /*
+     * Gate 4: Evidence availability.
+     */
+    const hasEscalationEvidence =
+      Boolean(record.escalationRecorded) ||
+      Boolean(
+        record.escalationTimestamp &&
+        record.escalationTimestamp.trim() !== ''
+      ) ||
+      record.evidencePresence?.escalationEvidence ===
+        'EVIDENCE_PRESENT';
 
     if (hasEscalationEvidence) {
       caseEvaluations.push({
-        caseId: record.caseId,
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -323,12 +406,13 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: true,
         passedObservationWindowGate: true,
-        reason: 'Required escalation evidence is present in submitted observation set.',
+        reason:
+          'Required escalation evidence is present in the submitted observation set.',
         rawPayloadSnippet: record.sourcePayload
       });
     } else {
       caseEvaluations.push({
-        caseId: record.caseId,
+        caseId,
         sourceRecordId: record.sourceRecordId,
         submissionId: record.submissionId,
         entityCode: record.entityCode,
@@ -343,62 +427,147 @@ export function calculateNegativeSpace(
         disposition: record.disposition,
         passedCompletenessGate: true,
         passedObservationWindowGate: true,
-        reason: 'Expected escalation evidence was not present in submitted observation set for applicable critical case. Potential evidence blind spot requiring supervisory review.',
+        reason:
+          'Expected escalation evidence was not present in the submitted ' +
+          'observation set for an applicable critical case. This is a ' +
+          'potential evidence blind spot requiring supervisory review.',
         rawPayloadSnippet: record.sourcePayload
       });
     }
   }
 
-  // -------------------------------------------------------------
-  // AGGREGATE CALCULATIONS & SAFEGUARDS
-  // -------------------------------------------------------------
+  /*
+   * Aggregate calculations.
+   *
+   * "Applicable" here means applicable AND valid for the specific
+   * negative-space observation. Limited and inconclusive cases remain
+   * visible through their own counters.
+   */
   const totalEvaluatedCases = records.length;
-  const applicableCaseCount = caseEvaluations.filter(c => c.severity === 'CRITICAL').length;
 
-  const evidencePresentCount = caseEvaluations.filter(c => c.classification === 'EVIDENCE_PRESENT').length;
-  const absentEvidenceCount = caseEvaluations.filter(c => c.classification === 'EVIDENCE_NOT_PRESENT').length;
-  const dataQualityLimitedCount = caseEvaluations.filter(c => c.classification === 'DATA_QUALITY_LIMITED').length;
-  const notApplicableCount = caseEvaluations.filter(c => c.classification === 'NOT_APPLICABLE').length;
-  const inconclusiveCount = caseEvaluations.filter(c => c.classification === 'INCONCLUSIVE').length;
+  const applicableCaseCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.isApplicable &&
+        (
+          evaluation.classification === 'EVIDENCE_PRESENT' ||
+          evaluation.classification === 'EVIDENCE_NOT_PRESENT'
+        )
+    ).length;
 
-  // The valid expected evidence denominator includes ONLY applicable cases that passed
-  // the completeness gate and observation validity gate.
-  // DATA_QUALITY_LIMITED and INCONCLUSIVE cases are excluded from the denominator.
-  const expectedEvidenceCount = evidencePresentCount + absentEvidenceCount;
-  const observedEvidenceCount = evidencePresentCount;
+  const evidencePresentCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'EVIDENCE_PRESENT'
+    ).length;
 
-  // Absence rate: absentEvidenceCount / expectedEvidenceCount * 100
+  const absentEvidenceCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'EVIDENCE_NOT_PRESENT'
+    ).length;
+
+  const dataQualityLimitedCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'DATA_QUALITY_LIMITED'
+    ).length;
+
+  const notApplicableCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'NOT_APPLICABLE'
+    ).length;
+
+  const inconclusiveCount =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'INCONCLUSIVE'
+    ).length;
+
+  /*
+   * Only cases that passed all gates can enter the denominator.
+   */
+  const expectedEvidenceCount =
+    evidencePresentCount + absentEvidenceCount;
+
+  const observedEvidenceCount =
+    evidencePresentCount;
+
   const absenceRate =
     expectedEvidenceCount === 0
       ? 0
-      : Math.round((absentEvidenceCount / expectedEvidenceCount) * 1000) / 10;
+      : Math.round(
+          (absentEvidenceCount / expectedEvidenceCount) * 1000
+        ) / 10;
 
-  // Traceability: Only EVIDENCE_NOT_PRESENT cases are listed as affected
-  const affectedCases = caseEvaluations.filter(c => c.classification === 'EVIDENCE_NOT_PRESENT');
-  const affectedCaseIds = affectedCases.map(c => c.caseId);
-  const sourceRecordIds = affectedCases.map(c => c.sourceRecordId);
+  const affectedCases =
+    caseEvaluations.filter(
+      evaluation =>
+        evaluation.classification === 'EVIDENCE_NOT_PRESENT'
+    );
 
-  // Additional warnings if limitations exist
+  const affectedCaseIds =
+    affectedCases.map(
+      evaluation => evaluation.caseId
+    );
+
+  const sourceRecordIds =
+    affectedCases
+      .map(evaluation => evaluation.sourceRecordId)
+      .filter(
+        (id): id is string =>
+          Boolean(id)
+      );
+
   if (dataQualityLimitedCount > 0) {
     warnings.push(
-      `${dataQualityLimitedCount} critical ${dataQualityLimitedCount === 1 ? 'case was' : 'cases were'} classified as DATA_QUALITY_LIMITED and excluded from the absence rate denominator to avoid false positive attribution.`
-    );
-  }
-  if (inconclusiveCount > 0) {
-    warnings.push(
-      `${inconclusiveCount} critical ${inconclusiveCount === 1 ? 'case was' : 'cases were'} classified as INCONCLUSIVE due to observation window boundaries or maintenance context.`
+      `${dataQualityLimitedCount} critical ` +
+      `${dataQualityLimitedCount === 1 ? 'case was' : 'cases were'} ` +
+      'classified as DATA_QUALITY_LIMITED and excluded from the ' +
+      'absence-rate denominator.'
     );
   }
 
-  // Restrained supervisory interpretation
+  if (inconclusiveCount > 0) {
+    warnings.push(
+      `${inconclusiveCount} critical ` +
+      `${inconclusiveCount === 1 ? 'case was' : 'cases were'} ` +
+      'classified as INCONCLUSIVE because observation validity or ' +
+      'context could not be established.'
+    );
+  }
+
   let interpretation: string;
+
   if (expectedEvidenceCount === 0) {
-    interpretation =
-      'No valid applicable critical cases with verifiable observation windows were found in the submitted observation set. Escalation evidence absence rate is 0.0%.';
+    if (
+      dataQualityLimitedCount > 0 ||
+      inconclusiveCount > 0
+    ) {
+      interpretation =
+        'No valid applicable critical cases were available for a ' +
+        'negative-space absence-rate calculation. Results are limited ' +
+        'by data quality or observation validity.';
+    } else {
+      interpretation =
+        'No valid applicable critical cases with verifiable observation ' +
+        'windows were found in the submitted observation set.';
+    }
   } else if (absentEvidenceCount === 0) {
-    interpretation = `Escalation evidence was present for all ${expectedEvidenceCount} valid applicable critical cases in the submitted observation set. No evidence blind spots identified for RULE-NS-ESC-01.`;
+    interpretation =
+      `Escalation evidence was present for all ` +
+      `${expectedEvidenceCount} valid applicable critical cases ` +
+      'in the submitted observation set. No evidence blind spots ' +
+      'were identified for RULE-NS-ESC-01.';
   } else {
-    interpretation = `Escalation evidence was not present for ${absentEvidenceCount} of ${expectedEvidenceCount} applicable cases in the submitted observation set (${absenceRate}% absence rate). This indicates a potential evidence blind spot and requires supervisory review.`;
+    interpretation =
+      `Escalation evidence was not present for ` +
+      `${absentEvidenceCount} of ${expectedEvidenceCount} ` +
+      `valid applicable critical cases ` +
+      `(${absenceRate}% absence rate). ` +
+      'This indicates a potential evidence blind spot and requires ' +
+      'supervisory review.';
   }
 
   return {
@@ -406,6 +575,7 @@ export function calculateNegativeSpace(
     ruleName: RULE_NS_ESC_01_METADATA.ruleName,
     ruleDescription: RULE_NS_ESC_01_METADATA.ruleDescription,
     ruleCategory: RULE_NS_ESC_01_METADATA.ruleCategory,
+
     submissionId,
     entityId,
     entityCode,
