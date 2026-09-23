@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import { useOffline } from '../../context/OfflineContext';
+import { CSESubmission } from '../../types';
 import {
   auditRepository,
   findingsRepository,
@@ -84,14 +85,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const sortedSubmissions = [...submissions].sort(
           (a, b) => {
             const aTime = new Date(
-              a.ingestedAt ||
-                a.createdAt ||
+              a.importedAt ||
+                (a as CSESubmission & { ingestedAt?: string; createdAt?: string }).ingestedAt ||
+                (a as CSESubmission & { ingestedAt?: string; createdAt?: string }).createdAt ||
                 0
             ).getTime();
 
             const bTime = new Date(
-              b.ingestedAt ||
-                b.createdAt ||
+              b.importedAt ||
+                (b as CSESubmission & { ingestedAt?: string; createdAt?: string }).ingestedAt ||
+                (b as CSESubmission & { ingestedAt?: string; createdAt?: string }).createdAt ||
                 0
             ).getTime();
 
@@ -103,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         setAssessmentPeriod(
           latest?.assessmentPeriod ||
-            latest?.period ||
+            (latest as CSESubmission & { period?: string })?.period ||
             null
         );
       } catch (error) {

@@ -159,7 +159,7 @@ export async function generateFindingFromExecutionGap(
         evaluation.escalationTimestamp || 'Not recorded';
 
       const closureTimestamp =
-        evaluation.closureTimestamp || 'Not recorded';
+        (evaluation as unknown as { closureTimestamp?: string | null }).closureTimestamp || 'Not recorded';
 
       return {
         incidentId: evaluation.caseId,

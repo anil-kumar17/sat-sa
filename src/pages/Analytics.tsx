@@ -19,6 +19,7 @@ import { dataQualityRepository } from '../repositories/dataQualityRepository';
 import { calculateExecutionGap } from '../services/analytics/executionGapEngine';
 import { calculateNegativeSpace } from '../services/analytics/negativeSpaceEngine';
 import { calculateTemporalAnalytics } from '../services/analytics/temporalAnalyticsEngine';
+import { PeerBenchmarkingSection } from '../components/assessments/PeerBenchmarkingSection';
 
 import {
   CSESubmission,
@@ -30,6 +31,8 @@ type AnalyticsState = {
   submission: CSESubmission | null;
   records: NormalizedCaseRecord[];
   qualityReport: DataQualityReport | null;
+  allSubmissions: CSESubmission[];
+  allRecords: NormalizedCaseRecord[];
 };
 
 const formatPercent = (value: number) =>
@@ -69,7 +72,9 @@ export const Analytics: React.FC = () => {
   const [data, setData] = useState<AnalyticsState>({
     submission: null,
     records: [],
-    qualityReport: null
+    qualityReport: null,
+    allSubmissions: [],
+    allRecords: []
   });
 
   const [loading, setLoading] = useState(true);
@@ -86,7 +91,9 @@ export const Analytics: React.FC = () => {
         setData({
           submission: null,
           records: [],
-          qualityReport: null
+          qualityReport: null,
+          allSubmissions: [],
+          allRecords: []
         });
         return;
       }
@@ -101,19 +108,22 @@ export const Analytics: React.FC = () => {
         return currentTime > latestTime ? current : latest;
       }, submissions[0]);
 
-      const [records, qualityReport] = await Promise.all([
+      const [records, qualityReport, allRecords] = await Promise.all([
         normalizedRecordRepository.getBySubmissionId(
           latestSubmission.submissionId
         ),
         dataQualityRepository.getBySubmissionId(
           latestSubmission.submissionId
-        )
+        ),
+        normalizedRecordRepository.getAll()
       ]);
 
       setData({
         submission: latestSubmission,
         records,
-        qualityReport: qualityReport ?? null
+        qualityReport: qualityReport ?? null,
+        allSubmissions: submissions,
+        allRecords
       });
     } catch (err) {
       console.error('Failed to load supervisory analytics:', err);
@@ -757,6 +767,14 @@ export const Analytics: React.FC = () => {
           </div>
         )}
       </section>
+
+      {/* PHASE 2: Peer Benchmarking & Supervisory Comparison */}
+      <PeerBenchmarkingSection
+        targetSubmission={data.submission}
+        targetRecords={data.records}
+        storedSubmissions={data.allSubmissions}
+        allStoredRecords={data.allRecords}
+      />
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 text-[10px] font-mono text-[#596174]">
         <span>

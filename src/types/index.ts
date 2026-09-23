@@ -1,8 +1,10 @@
 import type { CaseEvaluationDataQuality } from './analytics';
+import type { PeerBenchmarkSignal } from './peerBenchmark';
 
 export * from './negativeSpace';
 export * from './analytics';
 export * from './submission';
+export * from './peerBenchmark';
 
 export type SeverityLevel = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -98,6 +100,7 @@ export interface Finding {
     | 'INSUFFICIENT_DATA';
   sourceIntegrityFingerprint?: string;
   provenance?: FindingProvenance;
+  peerSignals?: PeerBenchmarkSignal[];
 }
 
 export interface Entity {

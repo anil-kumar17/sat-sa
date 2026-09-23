@@ -25,6 +25,8 @@ import {
   Finding
 } from '../types';
 
+import { findPeerProfileByEntityCode } from '../data/peerProfiles';
+
 interface PortfolioEntity {
   entityCode: string;
   entityId: string;
@@ -581,6 +583,7 @@ export const Portfolio: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredEntities.map((entity) => {
             const status = getEntityStatus(entity);
+            const peerProfile = findPeerProfileByEntityCode(entity.entityCode);
 
             const averageCompleteness =
               entity.completenessValues.length > 0
@@ -625,7 +628,37 @@ export const Portfolio: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mt-4">
+                  {peerProfile ? (
+                    <div className="mt-2.5 p-2 rounded bg-[#090D16]/60 border border-[#1E293B] text-[10px] space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[#8d90a0]">Sector:</span>
+                        <span className="font-mono text-[#dde2f7] font-medium truncate max-w-[160px]">
+                          {peerProfile.sector}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[#8d90a0]">Tier:</span>
+                        <span className="font-mono text-[#4cd7f6]">
+                          {peerProfile.criticalityTier}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1E293B]/60 text-[9px]">
+                        <span className="text-[#8d90a0] truncate max-w-[140px]" title={peerProfile.peerGroupName}>
+                          {peerProfile.peerGroupId}
+                        </span>
+                        <span className="font-mono text-[#10b981] bg-[#10b981]/10 px-1 py-0.2 rounded border border-[#10b981]/20">
+                          {peerProfile.isSynthetic ? 'SYNTHETIC DEMO' : 'COHORT ACTIVE'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2.5 p-2 rounded bg-[#090D16]/40 border border-[#1E293B]/60 text-[10px] flex items-center justify-between text-[#8d90a0]">
+                      <span>Peer Cohort:</span>
+                      <span className="font-mono text-[9px] text-[#596174]">Unassigned</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 mt-3">
                     <div className="p-2.5 rounded bg-[#090D16] border border-[#1E293B]">
                       <span className="text-[9px] text-[#8d90a0] uppercase block font-mono">
                         Records
