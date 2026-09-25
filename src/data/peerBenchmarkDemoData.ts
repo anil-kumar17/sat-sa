@@ -1,23 +1,7 @@
-/**
- * SYNTHETIC DEMONSTRATION DATA FOR PEER BENCHMARKING
- * 
- * IMPORTANT NOTICE:
- * This file contains deterministic synthetic peer candidate submissions and normalized case records
- * created exclusively for development, testing, supervisory demonstration, and architectural validation.
- * 
- * Under NO circumstances should these records be interpreted as real government supervisory records,
- * live security telemetry, or actual operational data of Critical Sector Entities.
- * 
- * All values are deterministically calculated by the peer benchmarking engine — none are hardcoded into UI cards.
- */
-
 import { NormalizedCaseRecord, SubmissionMetadata } from '../types';
 import { PeerCandidateSubmission } from '../services/analytics/peerBenchmarkEngine';
 
-/**
- * Synthetic Peer 1: ENT-012-CLR (Securities Clearing Settlement Hub)
- * Valid submission (100% complete, VALID status)
- */
+// Synthetic peer: valid, high-quality submission.
 const SUBMISSION_PEER_1: SubmissionMetadata = {
   submissionId: 'SUB-SYN-PEER-012',
   entityId: 'ENT-012-CLR',
@@ -249,10 +233,7 @@ const RECORDS_PEER_1: NormalizedCaseRecord[] = [
   }
 ];
 
-/**
- * Synthetic Peer 2: ENT-028-SWF (Cross-Border Message Switch)
- * Valid submission (94% complete, VALID status)
- */
+// Synthetic peer: valid, high-quality submission.
 const SUBMISSION_PEER_2: SubmissionMetadata = {
   submissionId: 'SUB-SYN-PEER-028',
   entityId: 'ENT-028-SWF',
@@ -458,10 +439,7 @@ const RECORDS_PEER_2: NormalizedCaseRecord[] = [
   }
 ];
 
-/**
- * Synthetic Peer 3: ENT-033-ACH (Retail Automated Clearing House)
- * Valid submission (91% complete, VALID status)
- */
+// Synthetic peer: valid, high-quality submission.
 const SUBMISSION_PEER_3: SubmissionMetadata = {
   submissionId: 'SUB-SYN-PEER-033',
   entityId: 'ENT-033-ACH',
@@ -667,11 +645,7 @@ const RECORDS_PEER_3: NormalizedCaseRecord[] = [
   }
 ];
 
-/**
- * Synthetic Peer 4 (Poor Data Quality Candidate): ENT-089-BAD
- * Status: INVALID, Completeness: 32%
- * Purpose: Demonstrates strict exclusion by Quality Gate (COMPLETENESS_BELOW_THRESHOLD / INVALID_STATUS).
- */
+// Synthetic peer: intentionally fails the submission quality gate.
 const SUBMISSION_PEER_4_BAD: SubmissionMetadata = {
   submissionId: 'SUB-SYN-PEER-089-BAD',
   entityId: 'ENT-089-BAD',
@@ -721,10 +695,7 @@ const RECORDS_PEER_4_BAD: NormalizedCaseRecord[] = [
   }
 ];
 
-/**
- * Synthetic Peer 5 (Missing Critical Identifiers): ENT-099-INC
- * Purpose: Demonstrates exclusion via MISSING_CRITICAL_IDENTIFIERS quality gate.
- */
+// Synthetic peer: intentionally fails the required identifier checks.
 const SUBMISSION_PEER_5_MISSING: SubmissionMetadata = {
   submissionId: '', // Missing submissionId!
   entityId: 'ENT-099-INC',
@@ -745,20 +716,9 @@ const SUBMISSION_PEER_5_MISSING: SubmissionMetadata = {
   sourceRecordIds: []
 };
 
-// ============================================================================
-// Cohort Demonstration Sets
-// ============================================================================
+// Demonstration cohorts used to exercise the benchmark quality gates.
 
-/**
- * Standard complete demonstration cohort:
- * - 3 Valid Peers (ENT-012-CLR, ENT-028-SWF, ENT-033-ACH)
- * - 2 Quality-Gate-Excluded Peers (ENT-089-BAD, ENT-099-INC)
- * Demonstrates:
- * - Baseline calculation (N=3 valid)
- * - Transparent quality gate exclusion reporting
- * - Multiple deviations (e.g. ESCALATION_EVIDENCE_COVERAGE)
- * - Within peer range metrics (e.g. TRIAGE_DURATION)
- */
+// Standard cohort: three valid peers plus two excluded candidates.
 export const DEMO_SYNTHETIC_PEER_CANDIDATES: PeerCandidateSubmission[] = [
   {
     submission: SUBMISSION_PEER_1,
@@ -782,11 +742,7 @@ export const DEMO_SYNTHETIC_PEER_CANDIDATES: PeerCandidateSubmission[] = [
   }
 ];
 
-/**
- * Insufficient sample size demonstration cohort:
- * Contains only 1 valid peer.
- * Evaluates to: INCONCLUSIVE (Sample size N=1 < 3 minimum).
- */
+// Insufficient cohort: one valid peer, so the result remains inconclusive.
 export const DEMO_INSUFFICIENT_PEER_CANDIDATES: PeerCandidateSubmission[] = [
   {
     submission: SUBMISSION_PEER_1,
@@ -794,22 +750,34 @@ export const DEMO_INSUFFICIENT_PEER_CANDIDATES: PeerCandidateSubmission[] = [
   }
 ];
 
-/**
- * Returns a cloned copy of the demonstration peer cohort to prevent mutation.
- */
+// Return independent demo objects so callers cannot mutate the registry.
 export function getDemoSyntheticPeerCandidates(): PeerCandidateSubmission[] {
-  return DEMO_SYNTHETIC_PEER_CANDIDATES.map((cand) => ({
-    submission: { ...cand.submission },
-    records: cand.records.map((r) => ({ ...r }))
+  return DEMO_SYNTHETIC_PEER_CANDIDATES.map((candidate) => ({
+    submission: { ...candidate.submission },
+    records: candidate.records.map((record) => ({
+      ...record,
+      evidencePresence: record.evidencePresence
+        ? { ...record.evidencePresence }
+        : record.evidencePresence,
+      sourcePayload: record.sourcePayload
+        ? { ...record.sourcePayload }
+        : record.sourcePayload
+    }))
   }));
 }
 
-/**
- * Returns a cloned copy of the insufficient demonstration cohort.
- */
+// Return independent objects for the insufficient-sample demo.
 export function getDemoInsufficientPeerCandidates(): PeerCandidateSubmission[] {
-  return DEMO_INSUFFICIENT_PEER_CANDIDATES.map((cand) => ({
-    submission: { ...cand.submission },
-    records: cand.records.map((r) => ({ ...r }))
+  return DEMO_INSUFFICIENT_PEER_CANDIDATES.map((candidate) => ({
+    submission: { ...candidate.submission },
+    records: candidate.records.map((record) => ({
+      ...record,
+      evidencePresence: record.evidencePresence
+        ? { ...record.evidencePresence }
+        : record.evidencePresence,
+      sourcePayload: record.sourcePayload
+        ? { ...record.sourcePayload }
+        : record.sourcePayload
+    }))
   }));
 }

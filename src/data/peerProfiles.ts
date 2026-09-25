@@ -1,20 +1,5 @@
-/**
- * SYNTHETIC DEMONSTRATION DATA
- * 
- * IMPORTANT NOTICE:
- * This file contains deterministic synthetic peer profiles and peer groups created solely
- * for development, testing, and architectural validation of the SAT-SA supervisory peer
- * benchmarking capability.
- * 
- * DO NOT present or interpret this data as real government, regulatory, or live Critical
- * Sector Entity (CSE) operational records.
- */
-
 import { PeerGroup, PeerProfile } from '../types/peerBenchmark';
 
-/**
- * Synthetic demonstration peer groups defined by sector and criticality tier.
- */
 export const DEMO_SYNTHETIC_PEER_GROUPS: PeerGroup[] = [
   {
     peerGroupId: 'PEER-FIN-CORE-T1',
@@ -26,12 +11,6 @@ export const DEMO_SYNTHETIC_PEER_GROUPS: PeerGroup[] = [
   }
 ];
 
-/**
- * Synthetic demonstration peer profile registry.
- * Currently configured exclusively for the canonical demonstration CSE-047 submission.
- * Note: Historical peer submissions are not fabricated; peer benchmarking dynamically evaluates
- * against comparable submissions that meet strict data quality gates.
- */
 export const DEMO_SYNTHETIC_PEER_PROFILES: PeerProfile[] = [
   {
     entityCode: 'ENT-047-PAY',
@@ -95,39 +74,32 @@ export const DEMO_SYNTHETIC_PEER_PROFILES: PeerProfile[] = [
   }
 ];
 
-/**
- * Deterministic lookup for a peer profile by entity code.
- */
 export function findPeerProfileByEntityCode(entityCode: string): PeerProfile | null {
   if (!entityCode) return null;
+
   const normalized = entityCode.trim().toUpperCase();
+
   const profile = DEMO_SYNTHETIC_PEER_PROFILES.find(
-    (p) => p.entityCode.toUpperCase() === normalized
+    (peerProfile) => peerProfile.entityCode.toUpperCase() === normalized
   );
+
   return profile ? { ...profile } : null;
 }
 
-/**
- * Deterministic lookup for a peer group by identifier.
- */
 export function findPeerGroupById(peerGroupId: string): PeerGroup | null {
   if (!peerGroupId) return null;
+
   const group = DEMO_SYNTHETIC_PEER_GROUPS.find(
-    (g) => g.peerGroupId === peerGroupId
+    (peerGroup) => peerGroup.peerGroupId === peerGroupId
   );
+
   return group ? { ...group } : null;
 }
 
-/**
- * Returns all registered synthetic peer profiles.
- */
 export function getAllPeerProfiles(): PeerProfile[] {
-  return DEMO_SYNTHETIC_PEER_PROFILES.map((p) => ({ ...p }));
+  return DEMO_SYNTHETIC_PEER_PROFILES.map((profile) => ({ ...profile }));
 }
 
-/**
- * Returns all registered synthetic peer groups.
- */
 export function getAllPeerGroups(): PeerGroup[] {
-  return DEMO_SYNTHETIC_PEER_GROUPS.map((g) => ({ ...g }));
+  return DEMO_SYNTHETIC_PEER_GROUPS.map((group) => ({ ...group }));
 }

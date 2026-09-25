@@ -218,7 +218,9 @@ export const Analytics: React.FC = () => {
             <AlertTriangle className="w-4 h-4" />
             ANALYTICS LOAD ERROR
           </div>
+
           <p className="text-sm text-[#dde2f7] mt-3">{error}</p>
+
           <button
             onClick={handleRefresh}
             className="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded border border-[#1E293B] bg-[#090D16] text-xs font-mono text-[#4cd7f6] hover:bg-[#131B2E]"
@@ -245,9 +247,11 @@ export const Analytics: React.FC = () => {
 
         <div className="mt-6 p-8 rounded bg-[#131B2E] border border-[#1E293B] text-center">
           <Database className="w-8 h-8 mx-auto text-[#4cd7f6]" />
+
           <h2 className="mt-4 text-sm font-semibold text-[#dde2f7]">
             No assessment submission available
           </h2>
+
           <p className="mt-2 max-w-md mx-auto text-xs leading-relaxed text-[#8d90a0]">
             Load a CSE assessment submission from the Assessments page before
             running supervisory analytics.
@@ -387,18 +391,22 @@ export const Analytics: React.FC = () => {
                 label="Applicable critical cases"
                 value={executionGap.summary.applicableCaseCount}
               />
+
               <DataRow
                 label="Observed escalations"
                 value={executionGap.summary.observedCount}
               />
+
               <DataRow
                 label="Potential execution gaps"
                 value={executionGap.summary.gapCount}
               />
+
               <DataRow
                 label="Gap rate"
                 value={formatPercent(executionGap.summary.gapRate)}
               />
+
               {(executionGap.summary.warnings ?? []).length > 0 && (
                 <Notice
                   text={(executionGap.summary.warnings ?? [])[0]}
@@ -430,14 +438,17 @@ export const Analytics: React.FC = () => {
                 label="Valid applicable cases"
                 value={negativeSpace.applicableCaseCount}
               />
+
               <DataRow
                 label="Evidence present"
                 value={negativeSpace.evidencePresentCount}
               />
+
               <DataRow
                 label="Evidence absent"
                 value={negativeSpace.absentEvidenceCount}
               />
+
               <DataRow
                 label="Excluded / limited"
                 value={
@@ -445,10 +456,12 @@ export const Analytics: React.FC = () => {
                   negativeSpace.inconclusiveCount
                 }
               />
+
               <DataRow
                 label="Absence rate"
                 value={formatPercent(negativeSpace.absenceRate)}
               />
+
               {(negativeSpace.warnings ?? []).length > 0 && (
                 <Notice
                   text={(negativeSpace.warnings ?? [])[0]}
@@ -480,18 +493,22 @@ export const Analytics: React.FC = () => {
                 label="Applicable cases"
                 value={temporal.summary.applicableCaseCount}
               />
+
               <DataRow
                 label="Timing deviations"
                 value={temporal.summary.timingDeviationCount}
               />
+
               <DataRow
                 label="Normal"
                 value={temporal.summary.normalCaseCount}
               />
+
               <DataRow
                 label="DQ limited"
                 value={temporal.summary.dataQualityLimitedCount}
               />
+
               <DataRow
                 label="Inconclusive"
                 value={temporal.summary.inconclusiveCount}
@@ -509,10 +526,12 @@ export const Analytics: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-[#4cd7f6]" />
+
                 <h2 className="text-sm font-semibold text-[#dde2f7]">
                   Temporal Evaluation
                 </h2>
               </div>
+
               <p className="text-[11px] text-[#8d90a0] mt-1">
                 Case-level timing classifications from the deterministic
                 temporal engine.
@@ -533,10 +552,12 @@ export const Analytics: React.FC = () => {
           ) : temporalDeviations.length === 0 ? (
             <div className="py-8 text-center">
               <CheckCircle2 className="w-7 h-7 mx-auto text-[#10b981]" />
+
               <p className="text-xs text-[#dde2f7] mt-3">
                 No timing deviations were classified in the current
                 submission.
               </p>
+
               <p className="text-[10px] text-[#8d90a0] mt-1">
                 This is an analytical result, not a certification of
                 operational compliance.
@@ -550,12 +571,15 @@ export const Analytics: React.FC = () => {
                     <th className="py-2 pr-3 font-mono text-[10px] text-[#8d90a0]">
                       CASE
                     </th>
+
                     <th className="py-2 px-3 font-mono text-[10px] text-[#8d90a0]">
                       METRIC
                     </th>
+
                     <th className="py-2 px-3 font-mono text-[10px] text-[#8d90a0]">
                       OBSERVED
                     </th>
+
                     <th className="py-2 pl-3 font-mono text-[10px] text-[#8d90a0]">
                       BASELINE
                     </th>
@@ -569,8 +593,7 @@ export const Analytics: React.FC = () => {
                         item => item.caseId === evaluation.caseId
                       );
 
-                    const metric =
-                      evaluation.deviationMetric;
+                    const metric = evaluation.deviationMetric;
 
                     const observedSeconds =
                       metric === 'TRIAGE_DURATION'
@@ -618,9 +641,11 @@ export const Analytics: React.FC = () => {
 
           {(temporal?.summary?.warnings ?? []).length ? (
             <div className="mt-4 space-y-2">
-              {(temporal.summary.warnings ?? []).slice(0, 3).map((warning, index) => (
-                <Notice key={index} text={warning} type="warning" />
-              ))}
+              {(temporal.summary.warnings ?? [])
+                .slice(0, 3)
+                .map((warning, index) => (
+                  <Notice key={index} text={warning} type="warning" />
+                ))}
             </div>
           ) : null}
         </section>
@@ -628,10 +653,12 @@ export const Analytics: React.FC = () => {
         <section className="p-5 rounded bg-[#131B2E] border border-[#1E293B]">
           <div className="flex items-center gap-2 pb-3 border-b border-[#1E293B]">
             <BarChart3 className="w-4 h-4 text-[#4cd7f6]" />
+
             <div>
               <h2 className="text-sm font-semibold text-[#dde2f7]">
                 Data Quality & Evidence Context
               </h2>
+
               <p className="text-[11px] text-[#8d90a0] mt-1">
                 Source conditions that affect interpretation of analytical
                 results.
@@ -667,9 +694,7 @@ export const Analytics: React.FC = () => {
 
             <DataRow
               label="Baseline available"
-              value={
-                temporal?.baseline.baselineRecordCount ?? 0
-              }
+              value={temporal?.baseline.baselineRecordCount ?? 0}
             />
 
             {(data.qualityReport?.issues ?? [])
@@ -711,6 +736,7 @@ export const Analytics: React.FC = () => {
             <h2 className="text-sm font-semibold text-[#dde2f7]">
               Temporal Case Classifications
             </h2>
+
             <p className="text-[11px] text-[#8d90a0] mt-1">
               The engine keeps normal, limited and inconclusive cases visible
               so missing evidence is not silently converted into a positive
@@ -753,6 +779,7 @@ export const Analytics: React.FC = () => {
                 {evaluation.deviationMetric && (
                   <div className="mt-2 font-mono text-[9px] text-[#ef4444]">
                     {evaluation.deviationMetric.replaceAll('_', ' ')}
+
                     {evaluation.deviationRatio !== null
                       ? ` · ${evaluation.deviationRatio.toFixed(2)}×`
                       : ''}
@@ -768,7 +795,6 @@ export const Analytics: React.FC = () => {
         )}
       </section>
 
-      {/* PHASE 2: Peer Benchmarking & Supervisory Comparison */}
       <PeerBenchmarkingSection
         targetSubmission={data.submission}
         targetRecords={data.records}
@@ -778,7 +804,7 @@ export const Analytics: React.FC = () => {
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 text-[10px] font-mono text-[#596174]">
         <span>
-          ANALYTICS SOURCE: LOCAL INDEXEDDB / DETERMINISTIC RULE ENGINES
+          ANALYTICS SOURCE: LOCAL INDEXEDDB / DETERMINISTIC ANALYTICS
         </span>
 
         <span>
@@ -807,6 +833,7 @@ const MetricCard: React.FC<{
     <div className="p-4 rounded bg-[#131B2E] border border-[#1E293B]">
       <div className="flex items-center gap-2 text-[#4cd7f6]">
         {icon}
+
         <span className="font-mono text-[10px]">{label}</span>
       </div>
 
@@ -874,6 +901,7 @@ const DataRow: React.FC<{
 }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4">
     <span className="text-[10px] text-[#8d90a0]">{label}</span>
+
     <span className="font-mono text-[10px] text-[#dde2f7] text-right">
       {value}
     </span>
